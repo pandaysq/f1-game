@@ -3,7 +3,8 @@
 Open-wheel racing game for friend leagues (working title). Fictional teams,
 drivers and tracks only — no real-world brands.
 
-**Engine:** Godot 4.5.1 · **License:** MIT · **Roadmap:** [docs/PLAN.md](docs/PLAN.md)
+**Engine:** Godot 4.5.1 · **Target:** mobile (Android/iOS, Mobile renderer) ·
+**License:** MIT · **Roadmap:** [docs/PLAN.md](docs/PLAN.md)
 
 [![CI](https://github.com/pandaysq/f1-game/actions/workflows/ci.yml/badge.svg)](https://github.com/pandaysq/f1-game/actions/workflows/ci.yml)
 

@@ -24,6 +24,7 @@ func _process(delta: float) -> void:
 
 
 func _refresh() -> void:
-	label.text = "FPS: %d | Physics: %d Hz | Quality: %s" % [
-		_fps, Engine.physics_ticks_per_second, Settings.quality
-	]
+	label.text = (
+		"FPS: %d | Physics: %d Hz | Quality: %s"
+		% [_fps, Engine.physics_ticks_per_second, Settings.quality]
+	)
