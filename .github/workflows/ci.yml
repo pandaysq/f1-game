@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint (gdformat / gdlint)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install gdtoolkit
+        run: pip install "gdtoolkit==4.*"
+      - name: gdformat check
+        run: gdformat --check scripts tests tracks
+      - name: gdlint
+        run: gdlint scripts tests tracks
+
+  test:
+    name: Headless tests (Godot 4.5.1)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Godot 4.5.1
+        run: |
+          curl -sL -o /tmp/godot.zip https://github.com/godotengine/godot/releases/download/4.5.1-stable/Godot_v4.5.1-stable_linux.x86_64.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          chmod +x /tmp/godot/Godot_v4.5.1-stable_linux.x86_64
+          /tmp/godot/Godot_v4.5.1-stable_linux.x86_64 --version
+      - name: Headless import
+        run: /tmp/godot/Godot_v4.5.1-stable_linux.x86_64 --headless --path . --import
+      - name: Validate tracks
+        run: /tmp/godot/Godot_v4.5.1-stable_linux.x86_64 --headless --path . --script res://tracks/validate_tracks.gd
+      - name: Smoke tests
+        run: /tmp/godot/Godot_v4.5.1-stable_linux.x86_64 --headless --path . --script res://tests/run_tests.gd
