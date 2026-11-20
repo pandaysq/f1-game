@@ -27,21 +27,14 @@ func _init(car: Car, session: TimeTrial) -> void:
 	_gear_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_gear_label.position = Vector2(margin, -76)
 
-	_time_label = _label(Vector2(margin, 40), 44)
-	_time_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_time_label = _label_right(24, 44)
 	_lap_label = _label(Vector2(margin, 40), 44)
 	_lap_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_lap_label.position = Vector2(margin, margin)
 
-	_best_label = _label(Vector2(margin, 40), 28)
-	_best_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_best_label.position = Vector2(-margin, 84)
-	_last_label = _label(Vector2(margin, 40), 28)
-	_last_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_last_label.position = Vector2(-margin, 120)
-	_sector_label = _label(Vector2(margin, 40), 36)
-	_sector_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_sector_label.position = Vector2(-120, 140)
+	_best_label = _label_right(84, 28)
+	_last_label = _label_right(120, 28)
+	_sector_label = _label_center_top(130, 36)
 
 	session.lap_completed.connect(_on_lap_completed)
 	session.sector_completed.connect(_on_sector_completed)
@@ -56,6 +49,30 @@ func _label(pos: Vector2, font_size: int) -> Label:
 	label.add_theme_constant_override("outline_size", 6)
 	label.position = pos
 	add_child(label)
+	return label
+
+
+## Right-aligned label pinned to the top-right screen edge.
+func _label_right(y: int, font_size: int) -> Label:
+	var label := _label(Vector2.ZERO, font_size)
+	label.anchor_left = 1.0
+	label.anchor_right = 1.0
+	label.offset_left = -384.0
+	label.offset_right = -24.0
+	label.offset_top = float(y)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	return label
+
+
+## Centered label pinned to the top edge (sector/lap flash messages).
+func _label_center_top(y: int, font_size: int) -> Label:
+	var label := _label(Vector2.ZERO, font_size)
+	label.anchor_left = 0.5
+	label.anchor_right = 0.5
+	label.offset_left = -300.0
+	label.offset_right = 300.0
+	label.offset_top = float(y)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return label
 
 

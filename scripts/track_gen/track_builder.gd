@@ -25,12 +25,22 @@ static func build(track: TrackData, parent: Node3D) -> Node3D:
 	root.set_meta("track", track)
 	parent.add_child(root)
 
-	_build_grass(root)
+	var ground_y := _ground_level(track)
+	_build_grass(root, track, ground_y)
 	_build_road(root, track)
 	_build_kerbs(root, track)
-	_build_barriers(root, track)
+	_build_barriers(root, track, ground_y)
 	_build_start_finish(root, track)
 	return root
+
+
+## Ground level below the lowest track point: grass plane, skirt and
+## barrier base all sit there (track may dip below y=0 with elevation).
+static func _ground_level(track: TrackData) -> float:
+	var min_y := INF
+	for p in track.points:
+		min_y = minf(min_y, p.y)
+	return min_y - 0.5
 
 
 ## Spawn transform for the player car at the track's spawn point.
@@ -40,9 +50,17 @@ static func spawn_transform(track: TrackData) -> Transform3D:
 	var dir := track.direction_at(i)
 	var side := track.side_at(i)
 	var origin := center + side * track.spawn_offset_lateral
-	# Basis(x_axis, y_axis, z_axis): car forward is -Z, so z_axis = -dir
-	var basis := Basis(Vector3.RIGHT, Vector3.UP, -dir)
-	return Transform3D(basis, origin + Vector3.UP * 0.6)
+	return Transform3D(alignment_basis(dir), origin + Vector3.UP * 0.6)
+
+
+## Orthonormal car alignment on the track: forward (-Z column) along `dir`.
+## A naive Basis(RIGHT, UP, -dir) is skewed whenever dir is not perpendicular
+## to RIGHT, which twists the spawned car (uneven wheel loads, sideways creep).
+static func alignment_basis(dir: Vector3) -> Basis:
+	var z_axis := -dir.normalized()
+	var x_axis := Vector3.UP.cross(z_axis).normalized()
+	var y_axis := z_axis.cross(x_axis)
+	return Basis(x_axis, y_axis, z_axis)
 
 
 # ---------------------------------------------------------------- road ribbon
@@ -68,23 +86,24 @@ static func _build_road(root: Node3D, track: TrackData) -> void:
 		var v3 := c1 + s1 * w1
 		var v_tile := distance / 8.0
 		var v_tile_next := (distance + c0.distance_to(c1)) / 8.0
-
-		st.set_color(Color.WHITE)
-		st.set_normal(Vector3.UP)
-		st.set_uv(Vector2(0, v_tile))
-		st.add_vertex(v0)
-		st.set_uv(Vector2(1, v_tile))
-		st.add_vertex(v1)
-		st.set_uv(Vector2(0, v_tile_next))
-		st.add_vertex(v2)
-		st.set_uv(Vector2(1, v_tile))
-		st.add_vertex(v1)
-		st.set_uv(Vector2(1, v_tile_next))
-		st.add_vertex(v3)
-		st.set_uv(Vector2(0, v_tile_next))
-		st.add_vertex(v2)
+		# perimeter walk v0 -> v1 -> v3 -> v2; flip logic faces the road up
+		_add_quad(
+			st,
+			v0,
+			v1,
+			v3,
+			v2,
+			Color.WHITE,
+			Vector3.UP,
+			Vector3.UP,
+			[
+				Vector2(0, v_tile),
+				Vector2(1, v_tile),
+				Vector2(1, v_tile_next),
+				Vector2(0, v_tile_next)
+			]
+		)
 		distance += c0.distance_to(c1)
-
 	var mesh := st.commit()
 	var body := _static_body_with_trimesh(mesh, 1.0, "asphalt")
 	root.add_child(_mesh_instance(mesh, COLOR_ASPHALT, 0.95))
@@ -111,7 +130,6 @@ static func _build_kerbs(root: Node3D, track: TrackData) -> void:
 			used = true
 			_add_kerb_strip(st, track, i, kerb_color)
 		distance += seg_length
-
 	if not used:
 		return
 	var mesh := st.commit()
@@ -134,13 +152,13 @@ static func _add_kerb_strip(st: SurfaceTool, track: TrackData, i: int, color: Co
 		var outer1 := (
 			track.points[next_i] + s1 * side_sign * (w1 + KERB_WIDTH) + Vector3.UP * KERB_HEIGHT
 		)
-		_add_quad(st, inner0, inner1, outer0, outer1, color)
+		_add_quad(st, inner0, inner1, outer1, outer0, color, Vector3.UP, Vector3.UP)
 
 
 # ---------------------------------------------------------------- barriers
 
 
-static func _build_barriers(root: Node3D, track: TrackData) -> void:
+static func _build_barriers(root: Node3D, track: TrackData, ground_y: float) -> void:
 	var n := track.point_count()
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -151,13 +169,17 @@ static func _build_barriers(root: Node3D, track: TrackData) -> void:
 			var s1 := track.side_at(next_i)
 			var w0 := track.widths[i] * 0.5 + BARRIER_OFFSET
 			var w1 := track.widths[next_i] * 0.5 + BARRIER_OFFSET
-			var base0 := track.points[i] + s0 * side_sign * w0
-			var base1 := track.points[next_i] + s1 * side_sign * w1
-			var top0 := base0 + Vector3.UP * BARRIER_HEIGHT
-			var top1 := base1 + Vector3.UP * BARRIER_HEIGHT
-			# double-sided quad (wall has collision and visual from both sides)
-			_add_quad(st, base0, base1, top0, top1, COLOR_BARRIER)
-			_add_quad(st, base1, base0, top1, top0, COLOR_BARRIER)
+			var b0 := track.points[i] + s0 * side_sign * w0
+			var b1 := track.points[next_i] + s1 * side_sign * w1
+			# walls stand on the grass skirt edge (flat ground level)
+			b0.y = ground_y
+			b1.y = ground_y
+			var top0 := b0 + Vector3.UP * BARRIER_HEIGHT
+			var top1 := b1 + Vector3.UP * BARRIER_HEIGHT
+			var outward := s0 * side_sign
+			# one quad per side; flip logic makes each face its viewer
+			_add_quad(st, b0, b1, top1, top0, COLOR_BARRIER, outward, outward)
+			_add_quad(st, b1, b0, top0, top1, COLOR_BARRIER, -outward, -outward)
 	var mesh := st.commit()
 	root.add_child(_mesh_instance(mesh, COLOR_BARRIER, 0.6))
 	root.add_child(_static_body_with_trimesh(mesh, 0.25, "barrier"))
@@ -185,7 +207,7 @@ static func _build_start_finish(root: Node3D, track: TrackData) -> void:
 		var b := track.points[i] + s0 * w0 * f1 + Vector3.UP * 0.02
 		var c := track.points[next_i] + s1 * w1 * f1 + Vector3.UP * 0.02
 		var d := track.points[next_i] + s1 * w1 * f0 + Vector3.UP * 0.02
-		_add_quad(st, a, b, c, d, color)
+		_add_quad(st, a, b, c, d, color, Vector3.UP, Vector3.UP)
 	var mesh := st.commit()
 	root.add_child(_mesh_instance(mesh, Color.WHITE, 0.85, true))
 
@@ -193,53 +215,92 @@ static func _build_start_finish(root: Node3D, track: TrackData) -> void:
 # ------------------------------------------------------------------ helpers
 
 
-static func _build_grass(root: Node3D) -> void:
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(GRASS_HALF_SIZE * 2.0, GRASS_HALF_SIZE * 2.0)
+static func _build_grass(root: Node3D, track: TrackData, ground_y: float) -> void:
+	var skirt := _build_skirt_mesh(track, ground_y)
+
 	var body := StaticBody3D.new()
 	body.set_meta("grip", 0.55)
 	body.set_meta("surface", "grass")
 	var boundary := WorldBoundaryShape3D.new()
-	boundary.plane = Plane(Vector3.UP, 0.0)
+	boundary.plane = Plane(Vector3.UP, ground_y)
 	var shape := CollisionShape3D.new()
 	shape.shape = boundary
 	body.add_child(shape)
+	var concave := ConcavePolygonShape3D.new()
+	concave.set_faces(skirt.get_faces())
+	concave.backface_collision = true
+	var skirt_shape := CollisionShape3D.new()
+	skirt_shape.shape = concave
+	body.add_child(skirt_shape)
 	root.add_child(body)
 
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.mesh = plane
+	root.add_child(_mesh_instance(skirt, COLOR_GRASS, 1.0))
+
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(GRASS_HALF_SIZE * 2.0, GRASS_HALF_SIZE * 2.0)
+	var plane_instance := MeshInstance3D.new()
+	plane_instance.mesh = plane
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = COLOR_GRASS
 	mat.roughness = 1.0
-	mesh_instance.material_override = mat
-	mesh_instance.position.y = -0.05
-	root.add_child(mesh_instance)
+	plane_instance.material_override = mat
+	plane_instance.position.y = ground_y
+	root.add_child(plane_instance)
+
+
+## Runoff skirt: slopes from the road edge down to the ground plane, so the
+## track can sit above or below y=0 (elevation) without buried geometry.
+static func _build_skirt_mesh(track: TrackData, ground_y: float) -> ArrayMesh:
+	var n := track.point_count()
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(n):
+		var next_i := (i + 1) % n
+		var s0 := track.side_at(i)
+		var s1 := track.side_at(next_i)
+		var w0 := track.widths[i] * 0.5
+		var w1 := track.widths[next_i] * 0.5
+		for side_sign: float in [-1.0, 1.0]:
+			var inner0 := track.points[i] + s0 * side_sign * w0
+			var inner1 := track.points[next_i] + s1 * side_sign * w1
+			var outer0 := track.points[i] + s0 * side_sign * (w0 + BARRIER_OFFSET)
+			var outer1 := track.points[next_i] + s1 * side_sign * (w1 + BARRIER_OFFSET)
+			outer0.y = ground_y
+			outer1.y = ground_y
+			_add_quad(st, inner0, inner1, outer1, outer0, Color.WHITE)
+	return st.commit()
 
 
 static func _add_quad(
-	st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, color: Color
+	st: SurfaceTool,
+	a: Vector3,
+	b: Vector3,
+	c: Vector3,
+	d: Vector3,
+	color: Color,
+	visible_from: Vector3 = Vector3.UP,
+	normal_override: Variant = null,
+	uvs: Array = [null, null, null, null]
 ) -> void:
+	var corners := [a, b, c, d]
 	var normal := (b - a).cross(c - a)
 	if normal.length() > 0.000001:
 		normal = normal.normalized()
-	st.set_color(color)
-	st.set_normal(normal)
-	st.add_vertex(a)
-	st.set_color(color)
-	st.set_normal(normal)
-	st.add_vertex(b)
-	st.set_color(color)
-	st.set_normal(normal)
-	st.add_vertex(c)
-	st.set_color(color)
-	st.set_normal(normal)
-	st.add_vertex(b)
-	st.set_color(color)
-	st.set_normal(normal)
-	st.add_vertex(c)
-	st.set_color(color)
-	st.set_normal(normal)
-	st.add_vertex(d)
+		# Godot front faces use clockwise winding: a surface is visible from
+		# the `visible_from` side when its right-hand-rule normal points AGAINST
+		# that side. Flip the winding when the normal aligns with it instead.
+	var flip := normal.dot(visible_from) > 0.0
+	var face_normal := -normal if flip else normal
+	if normal_override != null:
+		face_normal = normal_override
+	var triangle_orders := [[2, 1, 0], [3, 2, 1]] if flip else [[0, 1, 2], [1, 2, 3]]
+	for order: Array in triangle_orders:
+		for idx: int in order:
+			st.set_color(color)
+			st.set_normal(face_normal)
+			if uvs[idx] != null:
+				st.set_uv(uvs[idx])
+			st.add_vertex(corners[idx])
 
 
 static func _mesh_instance(
@@ -264,6 +325,7 @@ static func _static_body_with_trimesh(
 	body.set_meta("surface", surface_name)
 	var concave := ConcavePolygonShape3D.new()
 	concave.set_faces(mesh.get_faces())
+	concave.backface_collision = true
 	var shape := CollisionShape3D.new()
 	shape.shape = concave
 	body.add_child(shape)

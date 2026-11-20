@@ -17,7 +17,7 @@ func _init(car: Car) -> void:
 	cockpit_camera = Camera3D.new()
 	cockpit_camera.name = "CockpitCamera"
 	# driver eyes: slightly above attach plane (CG offset ~0.3 below origin)
-	cockpit_camera.position = Vector3(-0.35, 0.28, -0.35)
+	cockpit_camera.position = Vector3(-0.30, 0.42, -0.30)
 	cockpit_camera.fov = 78.0
 	cockpit_camera.near = 0.05
 	add_child(cockpit_camera)
@@ -30,12 +30,22 @@ func _init(car: Car) -> void:
 	cockpit_camera.current = true
 
 
+func activate_cockpit() -> void:
+	cockpit_camera.current = true
+
+
+func activate_chase() -> void:
+	if not chase_camera.current:
+		chase_camera.current = true
+		_snap_chase()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_camera"):
-		var cockpit_active := cockpit_camera.current
-		cockpit_camera.current = not cockpit_active
-		if not cockpit_active:
-			_snap_chase()
+		if cockpit_camera.current:
+			activate_chase()
+		else:
+			activate_cockpit()
 
 
 func _snap_chase() -> void:
@@ -43,6 +53,9 @@ func _snap_chase() -> void:
 
 
 func _physics_process(_delta: float) -> void:
+	# rig rides the car: cockpit camera is car-local, chase camera overrides
+	# its own global transform explicitly below (parent transform is ignored)
+	global_transform = _car.global_transform
 	# FOV kick for speed feeling (cockpit only)
 	var speed := _car.linear_velocity.length()
 	var kick := clampf(speed / 90.0, 0.0, 1.0)
