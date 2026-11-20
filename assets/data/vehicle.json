@@ -1,0 +1,109 @@
+{
+  "name": "Apex GP spec car (fictional open-wheeler)",
+  "mass_kg": 750.0,
+  "center_of_mass_height_m": 0.3,
+  "wheelbase_m": 3.1,
+  "track_width_m": 1.9,
+  "weight_distribution_front": 0.45,
+  "inertia_kg_m2": {
+    "pitch": 1215.0,
+    "yaw": 1440.0,
+    "roll": 300.0
+  },
+  "collision_box_m": {
+    "width": 1.4,
+    "height": 0.5,
+    "length": 4.3
+  },
+  "wheel": {
+    "radius_m": 0.33,
+    "width_m": 0.35,
+    "spin_inertia_kg_m2": 1.4
+  },
+  "suspension": {
+    "rest_length_m": 0.25,
+    "spring_rate_n_per_m": 120000.0,
+    "damper_n_s_per_m": 8000.0,
+    "anti_roll_bar_n_per_m": 18000.0,
+    "max_compression_m": 0.14
+  },
+  "steering": {
+    "max_angle_rad": 0.55,
+    "min_angle_at_top_speed_rad": 0.09,
+    "top_speed_for_min_rad": 80.0,
+    "rate_rad_per_s": 4.5
+  },
+  "engine": {
+    "idle_rpm": 3000.0,
+    "redline_rpm": 13000.0,
+    "torque_curve_nm": [
+      [
+        3000,
+        320.0
+      ],
+      [
+        6000,
+        380.0
+      ],
+      [
+        9000,
+        400.0
+      ],
+      [
+        11000,
+        380.0
+      ],
+      [
+        13000,
+        330.0
+      ]
+    ],
+    "launch_rpm": 7000.0
+  },
+  "gearbox": {
+    "reverse_ratio": -2.8,
+    "ratios": [
+      3.2,
+      2.6,
+      2.15,
+      1.8,
+      1.52,
+      1.3,
+      1.12,
+      0.98
+    ],
+    "final_drive": 3.4,
+    "shift_time_s": 0.15,
+    "upshift_rpm_fraction": 0.94,
+    "downshift_rpm_fraction": 0.45
+  },
+  "brakes": {
+    "max_torque_nm": 4000.0,
+    "bias_front": 0.58
+  },
+  "tires": {
+    "lat_B": 8.5,
+    "lat_C": 1.6,
+    "lat_mu": 1.65,
+    "lon_B": 10.0,
+    "lon_C": 1.65,
+    "lon_mu": 1.65,
+    "load_sensitivity": 0.05,
+    "nominal_load_n": 2000.0,
+    "wheel_inertia_compensation": 1.0,
+    "spin_damp_nms": 0.4,
+    "relaxation_length_m": 0.15
+  },
+  "aero": {
+    "drag_coeff": 0.48,
+    "downforce_coeff": 1.0
+  },
+  "assists": {
+    "abs_slip_threshold": -0.25,
+    "abs_brake_scale": 0.15,
+    "tc_slip_threshold": 0.15,
+    "tc_throttle_cut": 0.1,
+    "stability_yaw_gain": 2.5,
+    "steering_assist_speed_gain": 0.35
+  }
+}
