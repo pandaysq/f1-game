@@ -35,6 +35,7 @@ func _initialize() -> void:
 	print("== Apex GP test suite ==")
 	_test_config()
 	_test_track_validator()
+	_test_vehicle_visuals()
 	_test_time_trial_logic()
 	_test_racing_line_and_profile()
 	_test_race_logic()
@@ -89,6 +90,12 @@ func _test_track_validator() -> void:
 	if alpha == null:
 		_check(false, "alpha_loop.json parses")
 		return
+
+		# broken: not closed
+
+		# broken: narrow width
+
+		# broken: figure-8 self-intersection (8 points)
 	_check(true, "alpha_loop.json parses")
 	var problems := TrackValidator.validate(alpha)
 	_check(problems.is_empty(), "alpha_loop.json is valid (%s)" % str(problems))
@@ -144,6 +151,72 @@ func _make_ring() -> TrackData:
 	return track
 
 
+# ------------------------------------------------------ vehicle visuals
+
+
+func _test_vehicle_visuals() -> void:
+	print("[vehicle visuals]")
+	var car := VehicleFactory.build(Color(0.2, 0.4, 0.9), "TestCar")
+	var body := car.get_node_or_null("Visuals/Body") as Node3D
+	_check(body != null, "Sketchfab body attached to car visuals")
+	if body == null:
+		return
+
+		# calibration: body AABB must match the physics reference points
+	var mesh_count := 0
+	var hidden_tires := 0
+	var stack: Array = [body]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D:
+			mesh_count += 1
+		var lname := String(n.name).to_lower()
+		if n is Node3D and lname.contains("tire") and not (n as Node3D).visible:
+			hidden_tires += 1
+		for c in n.get_children():
+			stack.append(c)
+
+		# calibration: body AABB must match the physics reference points
+	_check(mesh_count > 10, "body carries imported meshes (%d)" % mesh_count)
+	_check(
+		hidden_tires >= 4, "glb tires hidden, procedural wheels own suspension (%d)" % hidden_tires
+	)
+	# calibration: body AABB must match the physics reference points
+	var aabb := _body_aabb(body)
+	var bottom := aabb.position.y
+	var mid_z := aabb.get_center().z
+	_check(
+		absf(bottom - (-0.47)) < 0.03, "body bottom at collision-box level (bottom %.3f)" % bottom
+	)
+	_check(absf(mid_z - (-0.155)) < 0.03, "body axle midpoint matches physics (%.3f)" % mid_z)
+	_check(aabb.size.x > 1.9, "body covers the track width (%.2f m)" % aabb.size.x)
+	car.free()
+
+
+## AABB of the body INCLUDING its calibration offset (root transform applied).
+func _body_aabb(body: Node3D) -> AABB:
+	var aabb := AABB()
+	var first := true
+	var stack: Array = [[body, body.transform]]
+	while not stack.is_empty():
+		var entry: Array = stack.pop_back()
+		var n: Node = entry[0]
+		var xf: Transform3D = entry[1]
+		if n is Node3D and n != body:
+			xf = xf * (n as Node3D).transform
+		var mi := n as MeshInstance3D
+		if mi != null and mi.mesh != null:
+			var box := xf * mi.mesh.get_aabb()
+			if first:
+				aabb = box
+				first = false
+			else:
+				aabb = aabb.merge(box)
+		for c in n.get_children():
+			stack.append([c, xf])
+	return aabb
+
+
 # ------------------------------------------------------ time trial tests
 
 
@@ -153,6 +226,11 @@ func _test_time_trial_logic() -> void:
 	if FileAccess.file_exists(TimeTrial.SAVE_PATH):
 		DirAccess.remove_absolute(save_path)
 
+		# two full laps, one point per update, 0.1 s per tick -> 4.0 s per lap
+
+		# back-and-forth near the start line must not count a lap
+
+		# persistence: best lap is saved and reloaded
 	var track := _make_ring()
 	var session := TimeTrial.new(track)
 	var laps_seen := [0]
@@ -165,6 +243,10 @@ func _test_time_trial_logic() -> void:
 	for lap in range(2):
 		for i in range(40):
 			session.update(track.points[i], 0.1)
+
+		# back-and-forth near the start line must not count a lap
+
+		# persistence: best lap is saved and reloaded
 	session.update(track.points[0], 0.1)
 	_check(laps_seen[0] == 2, "two laps counted (%d)" % laps_seen[0])
 	_check(sectors_seen[0] == 4, "four sector crossings (%d)" % sectors_seen[0])
@@ -177,8 +259,12 @@ func _test_time_trial_logic() -> void:
 	var session2 := TimeTrial.new(track)
 	for i in range(6):
 		session2.update(track.points[i], 0.1)
+
+		# persistence: best lap is saved and reloaded
 	for i in range(5):
 		session2.update(track.points[4 - i], 0.1)
+
+		# persistence: best lap is saved and reloaded
 	session2.update(track.points[0], 0.1)
 	_check(session2.lap_count == 0, "back-and-forth does not count a lap")
 
@@ -351,6 +437,8 @@ func _evaluate_accel_brake(driver: Node) -> void:
 	var max_speed := 0.0
 	for entry in driver.telemetry:
 		max_speed = maxf(max_speed, entry["speed"])
+
+		# braking distance between 300 km/h (83.3 m/s) and 100 km/h (27.8 m/s)
 	_check(max_speed > 60.0 and max_speed < 95.0, "top speed plausible (%.1f m/s)" % max_speed)
 
 	# braking distance between 300 km/h (83.3 m/s) and 100 km/h (27.8 m/s)
@@ -431,6 +519,11 @@ func _test_racing_line_and_profile() -> void:
 			in_bounds = false
 		if is_nan(d) or is_nan(line.offsets[i]):
 			nan = true
+
+		# braking pass monotonicity: speeds never demand more than a_brake
+		# between consecutive points
+
+		# difficulty ordering: legend profile >= pro >= rookie corner speeds
 	_check(in_bounds, "line stays within the track width")
 	_check(not nan, "line has no NaNs")
 	var vehicle: Dictionary = JSON.parse_string(
@@ -445,6 +538,11 @@ func _test_racing_line_and_profile() -> void:
 			ok = false
 		vmin = minf(vmin, v)
 		vmax = maxf(vmax, v)
+
+		# braking pass monotonicity: speeds never demand more than a_brake
+		# between consecutive points
+
+		# difficulty ordering: legend profile >= pro >= rookie corner speeds
 	_check(ok, "profile speeds are finite and sane (2..90 m/s)")
 	_check(vmax > 35.0, "profile uses the straights (%.1f m/s max)" % vmax)
 	_check(vmin < 12.0, "profile respects the tightest corner (%.1f m/s min)" % vmin)
@@ -459,6 +557,8 @@ func _test_racing_line_and_profile() -> void:
 		var a := (v0 * v0 - v1 * v1) / (2.0 * maxf(dist, 0.1)) if v0 > v1 else 0.0
 		if a > 18.0:
 			brake_ok = false
+
+		# difficulty ordering: legend profile >= pro >= rookie corner speeds
 	_check(brake_ok, "braking decel within 18 m/s^2 everywhere")
 	# difficulty ordering: legend profile >= pro >= rookie corner speeds
 	var p_rookie := SpeedProfile.build(line, vehicle, 0.58)
@@ -492,6 +592,8 @@ func _test_race_logic() -> void:
 		for q in seen:
 			if p.distance_to(q) < 2.0:
 				distinct = false
+
+				# grid must sit behind the start (progress ~ 1-0.1, not past it)
 		seen.append(p)
 		var nearest := 0
 		var nearest_d := INF
@@ -500,12 +602,21 @@ func _test_race_logic() -> void:
 			if d < nearest_d:
 				nearest_d = d
 				nearest = i
+
+				# grid must sit behind the start (progress ~ 1-0.1, not past it)
 		if nearest_d > track.widths[nearest] * 0.5 + 1.0:
 			on_road = false
-		# grid must sit behind the start (progress ~ 1-0.1, not past it)
+			# grid must sit behind the start (progress ~ 1-0.1, not past it)
 		var prog := float(nearest) / float(track.point_count())
 		if not (prog > 0.85 or prog < 0.05):
 			behind = false
+
+		# synthetic race: two cars, the leader one point ahead each step
+
+		# DRS availability with synthetic states: two cars nose-to-tail in a
+		# DRS zone at speed -> available; far apart -> not
+
+		# wake: solo car gets none (checked after the far-apart update)
 	_check(distinct, "grid slots are distinct")
 	_check(on_road, "grid slots are on the road")
 	_check(behind, "grid slots sit behind the start line")
@@ -534,6 +645,11 @@ func _test_race_logic() -> void:
 				)
 			)
 		session.update(states, 1.0 / 120.0)
+
+		# DRS availability with synthetic states: two cars nose-to-tail in a
+		# DRS zone at speed -> available; far apart -> not
+
+		# wake: solo car gets none (checked after the far-apart update)
 	_check(laps_seen.size() == 2, "two lap completions counted (%d)" % laps_seen.size())
 	_check(laps_seen[0] == 1, "the car ahead completes the lap first")
 	var order := session.positions()
@@ -544,8 +660,10 @@ func _test_race_logic() -> void:
 		_check(int(cls[0]["position"]) == 1, "winner at P1")
 		_check(int(cls[0]["car_index"]) == 1, "winner is the leader car")
 
-	# DRS availability with synthetic states: two cars nose-to-tail in a
-	# DRS zone at speed -> available; far apart -> not
+		# DRS availability with synthetic states: two cars nose-to-tail in a
+		# DRS zone at speed -> available; far apart -> not
+
+		# wake: solo car gets none (checked after the far-apart update)
 	var drs_session := RaceSession.new(track, config, 2)
 	drs_session.start_race()
 	var zone: Dictionary = track.drs_zones[0]
@@ -626,6 +744,8 @@ func _evaluate_car_collision(driver: Node) -> void:
 	for entry in d.telemetry:
 		if entry is Array:
 			min_y = minf(min_y, minf(entry[0], entry[1]))
+
+		# boxes are 1.4 m wide: >1.2 m apart means no deep interpenetration lock
 	_check(min_y > 0.4, "colliding cars stay on the ground (y >= %.2f)" % min_y)
 	var car: Car = d.car
 	var car_b: Car = d.car_b

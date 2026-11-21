@@ -4,6 +4,10 @@ extends Node3D
 ## Cockpit follows the chassis rigidly; chase camera is spring-smoothed.
 
 const CHASE_OFFSET_LOCAL := Vector3(0.0, 1.1, 3.8)
+## Driver-eye position in car-local space (origin = wheel attach plane).
+## Calibrated on the glb cockpit: eye under the halo, wing mirror in view,
+## nose clearly visible. Tuning helper: APEX_COCKPIT_OVERRIDE="x,y,z".
+const COCKPIT_LOCAL := Vector3(-0.22, 0.52, 0.20)
 
 var cockpit_camera: Camera3D
 var chase_camera: Camera3D
@@ -16,8 +20,16 @@ func _init(car: Car) -> void:
 
 	cockpit_camera = Camera3D.new()
 	cockpit_camera.name = "CockpitCamera"
-	# driver eyes: slightly above attach plane (CG offset ~0.3 below origin)
-	cockpit_camera.position = Vector3(-0.30, 0.42, -0.30)
+	# driver eyes: under the glb halo pod (pod spans y 0.59..0.71 above the
+	# attach plane, cockpit sits ~0.3 m behind the axle midpoint)
+	cockpit_camera.position = COCKPIT_LOCAL
+	var override := OS.get_environment("APEX_COCKPIT_OVERRIDE")
+	if not override.is_empty():
+		var parts := override.split(",")
+		if parts.size() == 3:
+			cockpit_camera.position = Vector3(
+				parts[0].to_float(), parts[1].to_float(), parts[2].to_float()
+			)
 	cockpit_camera.fov = 78.0
 	cockpit_camera.near = 0.05
 	add_child(cockpit_camera)

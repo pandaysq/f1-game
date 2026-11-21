@@ -7,6 +7,12 @@ extends Node3D
 const TICK_DT := 1.0 / 120.0
 const TRACK_PATH := "res://tracks/alpha_loop.json"
 const RACE_CONFIG_PATH := "res://assets/data/race_config.json"
+const ENVIRONMENT_MODEL_PATH := "res://assets/models/environment/endurance_run.glb"
+## Backdrop placement: the endurance diorama (1104 x 744 m, local AABB at
+## x 159..1263, z 426..1170) must stay clear of the drivable area
+## (alpha_loop: x -120..224, z -131..183). Shift seats it ~140 m beyond the
+## +Z edge; visual-only, no collision, cars never reach it.
+const SCENERY_OFFSET := Vector3(0.0, -0.9, -100.0)
 
 const AI_COLORS := [
 	Color(0.88, 0.09, 0.09),
@@ -56,6 +62,7 @@ func _ready() -> void:
 	if not problems.is_empty():
 		push_error("main: track validation failed: %s" % str(problems))
 	TrackBuilder.build(track, self)
+	_add_environment()
 
 	if _mode == "tt":
 		_setup_time_trial()
@@ -63,6 +70,17 @@ func _ready() -> void:
 		_setup_race()
 	debug_overlay.visible = true
 	_init_screenshot_hook()
+
+
+func _add_environment() -> void:
+	var packed: PackedScene = load(ENVIRONMENT_MODEL_PATH)
+	if packed == null:
+		push_warning("main: environment model missing, scenery skipped")
+		return
+	var scenery := packed.instantiate() as Node3D
+	scenery.name = "SceneryEndurance"
+	scenery.position = SCENERY_OFFSET
+	add_child(scenery)
 
 
 func _setup_race() -> void:
@@ -103,7 +121,6 @@ func _setup_race() -> void:
 			driver.frozen = true
 			drivers.append(driver)
 			driver.reset_requested.connect(_on_ai_reset.bind(driver))
-
 	camera_rig = CameraRig.new(cars[0])
 	add_child(camera_rig)
 	camera_rig.cockpit_camera.current = true
@@ -141,14 +158,25 @@ func _physics_process(delta: float) -> void:
 func _update_race(delta: float) -> void:
 	if session == null:
 		return
+
+		# player input is blocked until the green flag (jump start = no go
+		# penalty model yet, phase 7 rules)
+
+		# AI DRS is handled by AiDriver._physics_process
 	if not session.started and not _race_over:
 		_countdown_left -= delta
 		if _countdown_left <= 0.0:
 			session.start_race()
 			for driver in drivers:
 				driver.frozen = false
+
+				# player input is blocked until the green flag (jump start = no go
+				# penalty model yet, phase 7 rules)
 			cars[0].external_input = null
 			race_hud.show_message("GO!")
+
+			# player input is blocked until the green flag (jump start = no go
+			# penalty model yet, phase 7 rules)
 		else:
 			race_hud.show_message(str(ceil(_countdown_left)))
 			# player input is blocked until the green flag (jump start = no go
@@ -162,6 +190,7 @@ func _update_race(delta: float) -> void:
 				"shift_down": false,
 			}
 
+		# AI DRS is handled by AiDriver._physics_process
 	var states: Array = []
 	for car in cars:
 		(
@@ -174,6 +203,8 @@ func _update_race(delta: float) -> void:
 				}
 			)
 		)
+
+		# AI DRS is handled by AiDriver._physics_process
 	session.update(states, TICK_DT)
 
 	for i in range(cars.size()):
@@ -181,8 +212,7 @@ func _update_race(delta: float) -> void:
 		cars[i].aero_wake_drag = session.wake_drag(i)
 		if i == 0:
 			_update_player_drs()
-		# AI DRS is handled by AiDriver._physics_process
-
+			# AI DRS is handled by AiDriver._physics_process
 	if not _race_over and not session.classification.is_empty():
 		_race_over = true
 		var results := "\n".join(session.classification.map(_classification_line))
@@ -227,11 +257,17 @@ func _init_screenshot_hook() -> void:
 	_shot_dir = OS.get_environment("APEX_SHOT_DIR")
 	if _shot_dir.is_empty():
 		return
+
+		# visual QA: drive the player car with a real AI driver so shots
+		# show actual racing (not a blind full-throttle crash)
 	var plan := OS.get_environment("APEX_SHOT_PLAN")
 	for entry in plan.split(","):
 		var parts := entry.split(":")
 		if parts.size() == 2 and parts[0].is_valid_float():
 			_shot_plan.append([parts[0].to_float(), parts[1]])
+
+		# visual QA: drive the player car with a real AI driver so shots
+		# show actual racing (not a blind full-throttle crash)
 	_shot_plan.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
 	if OS.get_environment("APEX_DRIVE") != "" and not cars.is_empty():
 		# visual QA: drive the player car with a real AI driver so shots
