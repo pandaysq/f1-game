@@ -72,11 +72,13 @@ func _init(p_track: TrackData, p_config: Dictionary, p_car_count: int) -> void:
 
 ## Grid transforms: two-wide rows behind the start line, 8 m per row,
 ## pole on the right column nearest the line. Cars face along the track.
+## The grid is anchored to the START/FINISH LINE (not the spawn point):
+## slots must sit BEHIND the line so the first crossing arms lap 1.
 func grid_transforms() -> Array[Transform3D]:
 	var row_gap := 8.0
 	var lateral := 2.6
 	var out: Array[Transform3D] = []
-	var i := track.spawn_index
+	var i := _start_line_index()
 	var center: Vector3 = track.points[i]
 	for car in range(car_count):
 		var row := car / 2
@@ -93,6 +95,14 @@ func grid_transforms() -> Array[Transform3D]:
 func _index_behind(i: int, steps: int) -> int:
 	var n := track.point_count()
 	return (i - steps + n * 8) % n
+
+
+## Index of the start/finish timing line (fallback: 0).
+func _start_line_index() -> int:
+	for line in track.timing_lines:
+		if str(line.get("name", "")) == "start_finish":
+			return clampi(int(line.get("index", 0)), 0, track.point_count() - 1)
+	return 0
 
 
 ## Start the race (green flag). Called after the countdown.

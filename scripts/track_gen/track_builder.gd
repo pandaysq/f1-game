@@ -154,9 +154,42 @@ static func _build_road(root: Node3D, track: TrackData) -> void:
 			]
 		)
 	var mesh := st.commit()
-	var body := _static_body_with_extruded_trimesh(mesh, 1.0, "asphalt", 0.35)
+	# collision: per-segment BOX slabs instead of a trimesh. A trimesh can
+	# carry sub-meter sliver gaps between adjacent triangle strips (found
+	# at the phase-2 grid start: the pole car fell half through a 1 m
+	# diagonal slit). Boxes cannot have gaps; their top plane matches the
+	# road within ~2 cm on smooth elevation.
+	var body := _road_box_collision(spine)
 	root.add_child(_mesh_instance(mesh, COLOR_ASPHALT, 0.95))
 	root.add_child(body)
+
+
+## Road collision: one flat box slab per refined segment (width x 0.4 m
+## thick x segment length + 0.5 m overlap), oriented along the segment.
+static func _road_box_collision(spine: Array) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.set_meta("grip", 1.0)
+	body.set_meta("surface", "asphalt")
+	var n := spine.size()
+	for i in range(n):
+		var a: Dictionary = spine[i]
+		var b: Dictionary = spine[(i + 1) % n]
+		var c0: Vector3 = a["c"]
+		var c1: Vector3 = b["c"]
+		var seg := c1 - c0
+		var length := seg.length()
+		if length < 0.5:
+			continue
+		var dir := seg / length
+		var width: float = float(a["w"]) + float(b["w"])
+		var slab := BoxShape3D.new()
+		slab.size = Vector3(width, 0.4, length + 0.5)
+		var center := (c0 + c1) * 0.5 - Vector3.UP * 0.2
+		var node := CollisionShape3D.new()
+		node.shape = slab
+		node.transform = Transform3D(Basis(Vector3(dir.z, 0.0, -dir.x), Vector3.UP, dir), center)
+		body.add_child(node)
+	return body
 
 
 # ------------------------------------------------------------------- kerbs

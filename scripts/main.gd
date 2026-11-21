@@ -20,6 +20,7 @@ const AI_COLORS := [
 ]
 
 var track: TrackData
+var ai_line: RacingLine
 var cars: Array[Car] = []
 var drivers: Array[AiDriver] = []
 var session: RaceSession
@@ -74,16 +75,15 @@ func _setup_race() -> void:
 	session = RaceSession.new(track, config, grid_size)
 	var grid := session.grid_transforms()
 
-	var vehicle: Dictionary = JSON.parse_string(
-		FileAccess.get_file_as_string("res://assets/data/vehicle.json")
-	)
-	var line := RacingLine.build(track, 2.0, 0.9, 9)
-
 	var ai_cfg: Dictionary = config.get("ai", {})
 	var levels: Dictionary = ai_cfg.get("levels", {})
 	var default_level: String = ai_cfg.get("default_level", "pro")
 	var base_seed: int = ai_cfg.get("seed", 1234)
 	var ai_count: int = ai_cfg.get("count", grid_size - 1)
+	ai_line = RacingLine.build(track, 2.0, 0.9, 9)
+	var vehicle: Dictionary = JSON.parse_string(
+		FileAccess.get_file_as_string("res://assets/data/vehicle.json")
+	)
 
 	for i in range(grid_size):
 		var car: Car
@@ -96,10 +96,10 @@ func _setup_race() -> void:
 		cars.append(car)
 		if i > 0 and i <= ai_count:
 			var level: Dictionary = levels.get(default_level, {})
-			var profile := SpeedProfile.build(line, vehicle, float(level.get("mu_eff", 0.65)))
+			var profile := SpeedProfile.build(ai_line, vehicle, float(level.get("mu_eff", 0.65)))
 			var driver := AiDriver.new()
 			add_child(driver)
-			driver.setup(car, track, line, profile, level, base_seed + i * 17)
+			driver.setup(car, track, ai_line, profile, level, base_seed + i * 17)
 			driver.frozen = true
 			drivers.append(driver)
 			driver.reset_requested.connect(_on_ai_reset.bind(driver))
@@ -185,21 +185,20 @@ func _update_race(delta: float) -> void:
 
 	if not _race_over and not session.classification.is_empty():
 		_race_over = true
-		var results := "\n".join(
-			session.classification.map(
-				func(entry: Dictionary) -> String:
-					return (
-						"P%d  %s  L%d  best %s"
-						% [
-							entry["position"],
-							"YOU" if entry["car_index"] == 0 else "AI%d" % entry["car_index"],
-							entry["laps"],
-							_format_lap(entry["best_lap"]),
-						]
-					)
-			)
-		)
+		var results := "\n".join(session.classification.map(_classification_line))
 		race_hud.show_message("FINISH!\n" + results)
+
+
+func _classification_line(entry: Dictionary) -> String:
+	return (
+		"P%d  %s  L%d  best %s"
+		% [
+			entry["position"],
+			"YOU" if entry["car_index"] == 0 else "AI%d" % entry["car_index"],
+			entry["laps"],
+			_format_lap(entry["best_lap"]),
+		]
+	)
 
 
 func _update_player_drs() -> void:
@@ -234,16 +233,22 @@ func _init_screenshot_hook() -> void:
 		if parts.size() == 2 and parts[0].is_valid_float():
 			_shot_plan.append([parts[0].to_float(), parts[1]])
 	_shot_plan.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
-	if OS.get_environment("APEX_DRIVE") != "":
-		# gentle scripted lap: full throttle, mild steering toward track
-		cars[0].external_input = {
-			"throttle": 1.0,
-			"brake": 0.0,
-			"steer": 0.0,
-			"nitro": false,
-			"shift_up": false,
-			"shift_down": false
-		}
+	if OS.get_environment("APEX_DRIVE") != "" and not cars.is_empty():
+		# visual QA: drive the player car with a real AI driver so shots
+		# show actual racing (not a blind full-throttle crash)
+		var vehicle: Dictionary = JSON.parse_string(
+			FileAccess.get_file_as_string("res://assets/data/vehicle.json")
+		)
+		var race_config: Dictionary = JSON.parse_string(
+			FileAccess.get_file_as_string(RACE_CONFIG_PATH)
+		)
+		var level: Dictionary = race_config.get("ai", {}).get("levels", {}).get("pro", {})
+		var profile := SpeedProfile.build(ai_line, vehicle, float(level.get("mu_eff", 0.65)))
+		var driver := AiDriver.new()
+		add_child(driver)
+		driver.setup(cars[0], track, ai_line, profile, level, 777)
+		driver.frozen = not session.started if _mode == "race" else false
+		drivers.append(driver)
 
 
 func _capture_shot(mode: String) -> void:
