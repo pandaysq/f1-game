@@ -63,29 +63,79 @@ static func alignment_basis(dir: Vector3) -> Basis:
 	return Basis(x_axis, y_axis, z_axis)
 
 
+# ------------------------------------------------------------------- spine
+
+
+## Refined centerline used for ALL ribbon geometry (road, kerbs, skirt,
+## barriers): sharp segments are subdivided so no quad can fold on itself.
+## Phase-1 lesson: a 44-deg heading change over 2.3 m (Alpha Loop hairpin)
+## self-intersects the inner quad edge, leaving phantom flaps and holes in
+## the collision mesh. Subdivision is geometric only — TrackData, the
+## racing line and progress tracking keep the original points.
+## Returns [{c, s, w, angle, dist}] (center, side, half width, heading
+## change to the NEXT refined segment [rad], distance along the spine).
+static func _spine(track: TrackData, max_angle_rad: float = deg_to_rad(6.0)) -> Array:
+	var n := track.point_count()
+	var out: Array = []
+	var dist := 0.0
+	for i in range(n):
+		var next_i := (i + 1) % n
+		var c0: Vector3 = track.points[i]
+		var c1: Vector3 = track.points[next_i]
+		var seg := c1 - c0
+		var seg_len := seg.length()
+		if seg_len < 0.0001:
+			continue
+		# side/width/heading per original point (keeps banking tilt)
+		var s0 := track.side_at(i)
+		var w0 := track.widths[i] * 0.5
+		var turn := track.direction_at(i).angle_to(track.direction_at(next_i))
+		# subdivide so each refined segment turns at most max_angle_rad
+		var steps := maxi(1, int(ceil(turn / max_angle_rad)))
+		var curv := turn / seg_len
+		for k in range(steps):
+			var f := float(k) / float(steps)
+			(
+				out
+				. append(
+					{
+						"c": c0.lerp(c1, f),
+						"s": s0,
+						"w": w0,
+						"angle": turn / float(steps),
+						"curv": curv,
+						"dist": dist + seg_len * f,
+					}
+				)
+			)
+		dist += seg_len
+	return out
+
+
 # ---------------------------------------------------------------- road ribbon
 
 
 static func _build_road(root: Node3D, track: TrackData) -> void:
-	var n := track.point_count()
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	var distance := 0.0
+	var spine := _spine(track)
+	var n := spine.size()
 	for i in range(n):
-		var next_i := (i + 1) % n
-		var c0 := track.points[i]
-		var c1 := track.points[next_i]
-		var s0 := track.side_at(i)
-		var s1 := track.side_at(next_i)
-		var w0 := track.widths[i] * 0.5
-		var w1 := track.widths[next_i] * 0.5
+		var a: Dictionary = spine[i]
+		var b: Dictionary = spine[(i + 1) % n]
+		var c0: Vector3 = a["c"]
+		var c1: Vector3 = b["c"]
+		var s0: Vector3 = a["s"]
+		var s1: Vector3 = b["s"]
+		var w0: float = a["w"]
+		var w1: float = b["w"]
 		var v0 := c0 - s0 * w0
 		var v1 := c0 + s0 * w0
 		var v2 := c1 - s1 * w1
 		var v3 := c1 + s1 * w1
-		var v_tile := distance / 8.0
-		var v_tile_next := (distance + c0.distance_to(c1)) / 8.0
+		var v_tile: float = a["dist"] / 8.0
+		var v_tile_next: float = (a["dist"] + c0.distance_to(c1)) / 8.0
 		# perimeter walk v0 -> v1 -> v3 -> v2; flip logic faces the road up
 		_add_quad(
 			st,
@@ -103,9 +153,8 @@ static func _build_road(root: Node3D, track: TrackData) -> void:
 				Vector2(0, v_tile_next)
 			]
 		)
-		distance += c0.distance_to(c1)
 	var mesh := st.commit()
-	var body := _static_body_with_trimesh(mesh, 1.0, "asphalt")
+	var body := _static_body_with_extruded_trimesh(mesh, 1.0, "asphalt", 0.35)
 	root.add_child(_mesh_instance(mesh, COLOR_ASPHALT, 0.95))
 	root.add_child(body)
 
@@ -114,44 +163,41 @@ static func _build_road(root: Node3D, track: TrackData) -> void:
 
 
 static func _build_kerbs(root: Node3D, track: TrackData) -> void:
-	var n := track.point_count()
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var used := false
-	var distance := 0.0
 
+	var spine := _spine(track)
+	var n := spine.size()
 	for i in range(n):
-		var next_i := (i + 1) % n
-		var seg_length := track.points[i].distance_to(track.points[next_i])
-		var angle := track.direction_at(i).angle_to(track.direction_at(next_i))
-		var parity := int(distance / 3.0) % 2
-		var kerb_color := COLOR_KERB_RED if parity == 0 else COLOR_KERB_WHITE
-		if angle >= KERB_CURVATURE_THRESHOLD:
+		var a: Dictionary = spine[i]
+		var kerb_color := COLOR_KERB_RED if int(a["dist"] / 3.0) % 2 == 0 else COLOR_KERB_WHITE
+		# curvature threshold: the original rule (0.12 rad per original
+		# segment ~ 9.5 m) expressed per meter, subdivision-invariant
+		if float(a["curv"]) >= 0.0126:
 			used = true
-			_add_kerb_strip(st, track, i, kerb_color)
-		distance += seg_length
+			_add_kerb_strip(st, spine, i, kerb_color)
 	if not used:
 		return
 	var mesh := st.commit()
 	root.add_child(_mesh_instance(mesh, Color.WHITE, 0.9, true))
-	root.add_child(_static_body_with_trimesh(mesh, 0.95, "kerb"))
+	root.add_child(_static_body_with_extruded_trimesh(mesh, 0.95, "kerb", 0.12))
 
 
-static func _add_kerb_strip(st: SurfaceTool, track: TrackData, i: int, color: Color) -> void:
-	var next_i := (i + 1) % track.point_count()
+static func _add_kerb_strip(st: SurfaceTool, spine: Array, i: int, color: Color) -> void:
+	var a: Dictionary = spine[i]
+	var b: Dictionary = spine[(i + 1) % spine.size()]
 	for side_sign: float in [-1.0, 1.0]:
-		var s0 := track.side_at(i)
-		var s1 := track.side_at(next_i)
-		var w0 := track.widths[i] * 0.5
-		var w1 := track.widths[next_i] * 0.5
-		var inner0 := track.points[i] + s0 * side_sign * w0
-		var inner1 := track.points[next_i] + s1 * side_sign * w1
-		var outer0 := (
-			track.points[i] + s0 * side_sign * (w0 + KERB_WIDTH) + Vector3.UP * KERB_HEIGHT
-		)
-		var outer1 := (
-			track.points[next_i] + s1 * side_sign * (w1 + KERB_WIDTH) + Vector3.UP * KERB_HEIGHT
-		)
+		var s0: Vector3 = a["s"]
+		var s1: Vector3 = b["s"]
+		var w0: float = a["w"]
+		var w1: float = b["w"]
+		var c0: Vector3 = a["c"]
+		var c1: Vector3 = b["c"]
+		var inner0 := c0 + s0 * side_sign * w0
+		var inner1 := c1 + s1 * side_sign * w1
+		var outer0 := c0 + s0 * side_sign * (w0 + KERB_WIDTH) + Vector3.UP * KERB_HEIGHT
+		var outer1 := c1 + s1 * side_sign * (w1 + KERB_WIDTH) + Vector3.UP * KERB_HEIGHT
 		_add_quad(st, inner0, inner1, outer1, outer0, color, Vector3.UP, Vector3.UP)
 
 
@@ -159,18 +205,20 @@ static func _add_kerb_strip(st: SurfaceTool, track: TrackData, i: int, color: Co
 
 
 static func _build_barriers(root: Node3D, track: TrackData, ground_y: float) -> void:
-	var n := track.point_count()
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var spine := _spine(track)
+	var n := spine.size()
 	for i in range(n):
-		var next_i := (i + 1) % n
+		var a: Dictionary = spine[i]
+		var b: Dictionary = spine[(i + 1) % n]
 		for side_sign: float in [-1.0, 1.0]:
-			var s0 := track.side_at(i)
-			var s1 := track.side_at(next_i)
-			var w0 := track.widths[i] * 0.5 + BARRIER_OFFSET
-			var w1 := track.widths[next_i] * 0.5 + BARRIER_OFFSET
-			var b0 := track.points[i] + s0 * side_sign * w0
-			var b1 := track.points[next_i] + s1 * side_sign * w1
+			var s0: Vector3 = a["s"]
+			var s1: Vector3 = b["s"]
+			var w0: float = a["w"] + BARRIER_OFFSET
+			var w1: float = b["w"] + BARRIER_OFFSET
+			var b0: Vector3 = a["c"] + s0 * side_sign * w0
+			var b1: Vector3 = b["c"] + s1 * side_sign * w1
 			# walls stand on the grass skirt edge (flat ground level)
 			b0.y = ground_y
 			b1.y = ground_y
@@ -251,20 +299,22 @@ static func _build_grass(root: Node3D, track: TrackData, ground_y: float) -> voi
 ## Runoff skirt: slopes from the road edge down to the ground plane, so the
 ## track can sit above or below y=0 (elevation) without buried geometry.
 static func _build_skirt_mesh(track: TrackData, ground_y: float) -> ArrayMesh:
-	var n := track.point_count()
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var spine := _spine(track)
+	var n := spine.size()
 	for i in range(n):
-		var next_i := (i + 1) % n
-		var s0 := track.side_at(i)
-		var s1 := track.side_at(next_i)
-		var w0 := track.widths[i] * 0.5
-		var w1 := track.widths[next_i] * 0.5
+		var a: Dictionary = spine[i]
+		var b: Dictionary = spine[(i + 1) % n]
 		for side_sign: float in [-1.0, 1.0]:
-			var inner0 := track.points[i] + s0 * side_sign * w0
-			var inner1 := track.points[next_i] + s1 * side_sign * w1
-			var outer0 := track.points[i] + s0 * side_sign * (w0 + BARRIER_OFFSET)
-			var outer1 := track.points[next_i] + s1 * side_sign * (w1 + BARRIER_OFFSET)
+			var s0: Vector3 = a["s"]
+			var s1: Vector3 = b["s"]
+			var w0: float = a["w"]
+			var w1: float = b["w"]
+			var inner0: Vector3 = a["c"] + s0 * side_sign * w0
+			var inner1: Vector3 = b["c"] + s1 * side_sign * w1
+			var outer0: Vector3 = a["c"] + s0 * side_sign * (w0 + BARRIER_OFFSET)
+			var outer1: Vector3 = b["c"] + s1 * side_sign * (w1 + BARRIER_OFFSET)
 			outer0.y = ground_y
 			outer1.y = ground_y
 			_add_quad(st, inner0, inner1, outer1, outer0, Color.WHITE)
@@ -315,6 +365,50 @@ static func _mesh_instance(
 		mat.vertex_color_use_as_albedo = true
 	instance.material_override = mat
 	return instance
+
+
+## Closed-volume collision under a flat ribbon mesh: the flat surface is
+## extruded `depth` meters down so a body that ends up below it resolves
+## UP, not through. Zero-thickness trimeshes let cars tunnel at sharp
+## corners (phase-2 lesson: the Alpha Loop hairpin).
+static func _static_body_with_extruded_trimesh(
+	mesh: Mesh, grip: float, surface_name: String, depth: float
+) -> StaticBody3D:
+	var faces := mesh.get_faces()
+	var verts: PackedVector3Array = PackedVector3Array()
+	var tri_count := faces.size() / 3
+	for t in range(tri_count):
+		var a: Vector3 = faces[t * 3]
+		var b: Vector3 = faces[t * 3 + 1]
+		var c: Vector3 = faces[t * 3 + 2]
+		var a2 := a - Vector3.UP * depth
+		var b2 := b - Vector3.UP * depth
+		var c2 := c - Vector3.UP * depth
+		# top + bottom
+		verts.append(a)
+		verts.append(b)
+		verts.append(c)
+		verts.append(a2)
+		verts.append(b2)
+		verts.append(c2)
+		# side walls on each edge
+		for edge in [[a, b, b2, a2], [b, c, c2, b2], [c, a, a2, c2]]:
+			verts.append(edge[0])
+			verts.append(edge[1])
+			verts.append(edge[2])
+			verts.append(edge[0])
+			verts.append(edge[2])
+			verts.append(edge[3])
+	var body := StaticBody3D.new()
+	body.set_meta("grip", grip)
+	body.set_meta("surface", surface_name)
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(verts)
+	shape.backface_collision = true
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	body.add_child(collision)
+	return body
 
 
 static func _static_body_with_trimesh(
