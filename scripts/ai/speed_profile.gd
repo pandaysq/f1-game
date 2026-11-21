@@ -24,7 +24,10 @@ static func build(
 	vehicle: Dictionary,
 	mu_eff: float,
 	v_top: float = 82.0,
-	power_w: float = 350000.0
+	power_w: float = 350000.0,
+	corner_safety: float = 0.96,
+	brake_mu_eff: float = 1.05,
+	drive_mu_eff: float = 1.0
 ) -> SpeedProfile:
 	var n := line.points.size()
 	var profile := SpeedProfile.new()
@@ -53,14 +56,20 @@ static func build(
 			var v_f := a_f / maxf(k - b_f, 0.00001)
 			var v_r := a_r / maxf(k - b_r, 0.00001)
 			if k > b_f:
-				profile.speeds[i] = minf(profile.speeds[i], sqrt(v_f))
+				profile.speeds[i] = minf(profile.speeds[i], sqrt(v_f) * corner_safety)
 			if k > b_r:
-				profile.speeds[i] = minf(profile.speeds[i], sqrt(v_r))
-	# backward pass (twice around the loop to converge through the wrap)
+				profile.speeds[i] = minf(profile.speeds[i], sqrt(v_r) * corner_safety)
+	# backward pass (twice around the loop to converge through the wrap).
+	# Braking is calibrated SEPARATELY from cornering: the sim car brakes at
+	# ~16 m/s^2 from 300 km/h (phase-1 measured 190 m), which is mu ~1.35
+	# with downforce — cornering mu_eff is NOT the braking limit.
 	for _lap in range(2):
 		for i in range(n - 2, -1, -1):
 			var next_speed := profile.speeds[(i + 1) % n]
-			var a_brake := mu_eff * 9.81 + (mu_eff * c_df + c_drag) / mass * next_speed * next_speed
+			var a_brake := (
+				brake_mu_eff * (9.81 + c_df * next_speed * next_speed / mass)
+				+ c_drag * next_speed * next_speed / mass
+			)
 			var reach := sqrt(next_speed * next_speed + 2.0 * a_brake * line.lengths[i])
 			profile.speeds[i] = minf(profile.speeds[i], reach)
 	# forward pass (twice around: grid starts need accel from low speed)
@@ -69,7 +78,7 @@ static func build(
 			var next_i := (i + 1) % n
 			var v := maxf(profile.speeds[i], 2.0)
 			var power_cap := power_w / (mass * maxf(v, 8.0))
-			var traction_cap := mu_eff * (9.81 * (1.0 - w_f) + c_rw * v * v / mass)
+			var traction_cap := drive_mu_eff * (9.81 * (1.0 - w_f) + c_rw * v * v / mass)
 			var a_drive := minf(power_cap, traction_cap)
 			var reach := sqrt(v * v + 2.0 * a_drive * line.lengths[i])
 			profile.speeds[next_i] = minf(profile.speeds[next_i], reach)
