@@ -53,23 +53,14 @@ func _init_screenshot_hook() -> void:
 	if _shot_dir.is_empty():
 		return
 
-		# gentle scripted lap: full throttle, mild steering toward track
-
-		# gentle scripted lap: full throttle, mild steering toward track
-
-		# gentle scripted lap: full throttle, mild steering toward track
 	var plan := OS.get_environment("APEX_SHOT_PLAN")
 	for entry in plan.split(","):
 		var parts := entry.split(":")
 		if parts.size() == 2 and parts[0].is_valid_float():
 			_shot_plan.append([parts[0].to_float(), parts[1]])
 
-			# gentle scripted lap: full throttle, mild steering toward track
-
-		# gentle scripted lap: full throttle, mild steering toward track
 	_shot_plan.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
 	if OS.get_environment("APEX_DRIVE") != "":
-		# gentle scripted lap: full throttle, mild steering toward track
 		car.external_input = {
 			"throttle": 1.0,
 			"brake": 0.0,

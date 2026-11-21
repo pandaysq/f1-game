@@ -165,100 +165,14 @@ func _step_wheels(input: Dictionary) -> void:
 	if bool(assists_on.get("auto_gearbox", false)):
 		powertrain.auto_shift(rear_speed, throttle, sim_time)
 
-		# smooth TC: taper drive torque as rear slip passes the grip peak
-		# (peak longitudinal force is near slip ratio ~0.14 with lon_B/lon_C)
-
-		# suspension compression per wheel (needed by ARB before per-wheel forces)
-
-		# free wheel spin decays slowly (air drag on wheel)
-
-		# suspension + ARB [N]
-
-		# tire coordinate frame: forward = rolling direction of this wheel
-
-		# dynamic slip with relaxation length (Pacejka MF style): the contact
-		# patch needs travel to build force; the lag keeps the wheel spin
-		# loop stable at 120 Hz and is physically justified
-
-		# lateral slip stays instantaneous: no internal state loop there, and
-		# the lag on slip angle destabilized yaw (energy pump at saturation)
-
-		# lateral force opposes the lateral velocity: slip_angle is measured
-		# along the wheel's right axis, so the restoring force is negative
-
-		# brake torque [Nm], front/rear split; ABS reduces locking wheels
-
-		# wheel spin dynamics: I * dw = drive - Fx*r - brake
-
-		# bearing / drivetrain drag: kills numerical limit cycles
-
-		# brake cannot reverse wheel rotation direction within one tick
 	elif bool(input.get("shift_up", false)):
 		powertrain.request_shift(1, sim_time)
 
-		# smooth TC: taper drive torque as rear slip passes the grip peak
-		# (peak longitudinal force is near slip ratio ~0.14 with lon_B/lon_C)
-
-		# suspension compression per wheel (needed by ARB before per-wheel forces)
-
-		# free wheel spin decays slowly (air drag on wheel)
-
-		# suspension + ARB [N]
-
-		# tire coordinate frame: forward = rolling direction of this wheel
-
-		# dynamic slip with relaxation length (Pacejka MF style): the contact
-		# patch needs travel to build force; the lag keeps the wheel spin
-		# loop stable at 120 Hz and is physically justified
-
-		# lateral slip stays instantaneous: no internal state loop there, and
-		# the lag on slip angle destabilized yaw (energy pump at saturation)
-
-		# lateral force opposes the lateral velocity: slip_angle is measured
-		# along the wheel's right axis, so the restoring force is negative
-
-		# brake torque [Nm], front/rear split; ABS reduces locking wheels
-
-		# wheel spin dynamics: I * dw = drive - Fx*r - brake
-
-		# bearing / drivetrain drag: kills numerical limit cycles
-
-		# brake cannot reverse wheel rotation direction within one tick
 	elif bool(input.get("shift_down", false)):
 		powertrain.request_shift(-1, sim_time)
 
-		# smooth TC: taper drive torque as rear slip passes the grip peak
-		# (peak longitudinal force is near slip ratio ~0.14 with lon_B/lon_C)
-
-		# suspension compression per wheel (needed by ARB before per-wheel forces)
-
-		# free wheel spin decays slowly (air drag on wheel)
-
-		# suspension + ARB [N]
-
-		# tire coordinate frame: forward = rolling direction of this wheel
-
-		# dynamic slip with relaxation length (Pacejka MF style): the contact
-		# patch needs travel to build force; the lag keeps the wheel spin
-		# loop stable at 120 Hz and is physically justified
-
-		# lateral slip stays instantaneous: no internal state loop there, and
-		# the lag on slip angle destabilized yaw (energy pump at saturation)
-
-		# lateral force opposes the lateral velocity: slip_angle is measured
-		# along the wheel's right axis, so the restoring force is negative
-
-		# brake torque [Nm], front/rear split; ABS reduces locking wheels
-
-		# wheel spin dynamics: I * dw = drive - Fx*r - brake
-
-		# bearing / drivetrain drag: kills numerical limit cycles
-
-		# brake cannot reverse wheel rotation direction within one tick
 	var drive_torque := powertrain.wheel_torque(sim_time, throttle)
 	if bool(assists_on.get("traction_control", false)):
-		# smooth TC: taper drive torque as rear slip passes the grip peak
-		# (peak longitudinal force is near slip ratio ~0.14 with lon_B/lon_C)
 		var rear_slip := maxf(wheel_slip_ratios[2], wheel_slip_ratios[3])
 		var tc_start := float(_assist_params.get("tc_slip_threshold", 0.25))
 		if rear_slip > tc_start:
@@ -268,58 +182,10 @@ func _step_wheels(input: Dictionary) -> void:
 				clampf((rear_slip - tc_start) / 0.25, 0.0, 1.0)
 			)
 
-		# suspension compression per wheel (needed by ARB before per-wheel forces)
-
-		# free wheel spin decays slowly (air drag on wheel)
-
-		# suspension + ARB [N]
-
-		# tire coordinate frame: forward = rolling direction of this wheel
-
-		# dynamic slip with relaxation length (Pacejka MF style): the contact
-		# patch needs travel to build force; the lag keeps the wheel spin
-		# loop stable at 120 Hz and is physically justified
-
-		# lateral slip stays instantaneous: no internal state loop there, and
-		# the lag on slip angle destabilized yaw (energy pump at saturation)
-
-		# lateral force opposes the lateral velocity: slip_angle is measured
-		# along the wheel's right axis, so the restoring force is negative
-
-		# brake torque [Nm], front/rear split; ABS reduces locking wheels
-
-		# wheel spin dynamics: I * dw = drive - Fx*r - brake
-
-		# bearing / drivetrain drag: kills numerical limit cycles
-
-		# brake cannot reverse wheel rotation direction within one tick
 	var compressions: Array[float] = [0.0, 0.0, 0.0, 0.0]
 	for i in range(4):
 		compressions[i] = _raycast_compression(i, rest_length, wheel_radius, space)
 
-		# free wheel spin decays slowly (air drag on wheel)
-
-		# suspension + ARB [N]
-
-		# tire coordinate frame: forward = rolling direction of this wheel
-
-		# dynamic slip with relaxation length (Pacejka MF style): the contact
-		# patch needs travel to build force; the lag keeps the wheel spin
-		# loop stable at 120 Hz and is physically justified
-
-		# lateral slip stays instantaneous: no internal state loop there, and
-		# the lag on slip angle destabilized yaw (energy pump at saturation)
-
-		# lateral force opposes the lateral velocity: slip_angle is measured
-		# along the wheel's right axis, so the restoring force is negative
-
-		# brake torque [Nm], front/rear split; ABS reduces locking wheels
-
-		# wheel spin dynamics: I * dw = drive - Fx*r - brake
-
-		# bearing / drivetrain drag: kills numerical limit cycles
-
-		# brake cannot reverse wheel rotation direction within one tick
 	for i in range(4):
 		var attach_global := to_global(_wheel_local_pos[i])
 		var up := global_transform.basis.y
@@ -328,31 +194,9 @@ func _step_wheels(input: Dictionary) -> void:
 
 		if not wheel_contacts[i]:
 			wheel_loads[i] = 0.0
-			# free wheel spin decays slowly (air drag on wheel)
 			wheel_spin[i] *= 0.999
 			continue
 
-			# suspension + ARB [N]
-
-			# tire coordinate frame: forward = rolling direction of this wheel
-
-			# dynamic slip with relaxation length (Pacejka MF style): the contact
-			# patch needs travel to build force; the lag keeps the wheel spin
-			# loop stable at 120 Hz and is physically justified
-
-			# lateral slip stays instantaneous: no internal state loop there, and
-			# the lag on slip angle destabilized yaw (energy pump at saturation)
-
-			# lateral force opposes the lateral velocity: slip_angle is measured
-			# along the wheel's right axis, so the restoring force is negative
-
-			# brake torque [Nm], front/rear split; ABS reduces locking wheels
-
-			# wheel spin dynamics: I * dw = drive - Fx*r - brake
-
-			# bearing / drivetrain drag: kills numerical limit cycles
-
-			# brake cannot reverse wheel rotation direction within one tick
 		var compression_rate := _compression_rate(i)
 		var spring_force := spring_rate * compression + damper * compression_rate
 		spring_force = maxf(spring_force, 0.0)
@@ -363,7 +207,6 @@ func _step_wheels(input: Dictionary) -> void:
 		wheel_loads[i] = fz
 		apply_force(up * fz, attach_global - global_transform.origin)
 
-		# tire coordinate frame: forward = rolling direction of this wheel
 		var steer := steering_angle if _front_mask[i] else 0.0
 		var forward := (global_transform.basis.z * -1.0).rotated(global_transform.basis.y, steer)
 		var side := forward.cross(Vector3.UP).normalized()
@@ -373,17 +216,12 @@ func _step_wheels(input: Dictionary) -> void:
 		var v_forward := contact_velocity.dot(forward)
 		var v_side := contact_velocity.dot(side)
 
-		# dynamic slip with relaxation length (Pacejka MF style): the contact
-		# patch needs travel to build force; the lag keeps the wheel spin
-		# loop stable at 120 Hz and is physically justified
 		var relax := float(_tires.get("relaxation_length_m", 0.15))
 		var tau := relax / maxf(absf(v_forward), 0.5)
 		var alpha := clampf(TICK_DT / maxf(tau, 0.001), 0.02, 1.0)
 		var ss_slip_ratio := (wheel_spin[i] * wheel_radius - v_forward) / maxf(absf(v_forward), 1.0)
 		var ss_slip_angle := atan2(v_side, maxf(absf(v_forward), 1.0))
 		_slip_lon_state[i] = lerpf(_slip_lon_state[i], ss_slip_ratio, alpha)
-		# lateral slip stays instantaneous: no internal state loop there, and
-		# the lag on slip angle destabilized yaw (energy pump at saturation)
 		var slip_ratio := _slip_lon_state[i]
 		var slip_angle := ss_slip_angle
 		wheel_slip_ratios[i] = slip_ratio
@@ -391,8 +229,6 @@ func _step_wheels(input: Dictionary) -> void:
 
 		var surface_mu := _surface_grip(contact)
 		var fx := TireModel.longitudinal_force(fz, slip_ratio, surface_mu, _tires)
-		# lateral force opposes the lateral velocity: slip_angle is measured
-		# along the wheel's right axis, so the restoring force is negative
 		var fy := -TireModel.lateral_force(fz, slip_angle, surface_mu, _tires)
 		var combined := TireModel.combine(fx, fy, fz, surface_mu)
 		fx = combined.x
@@ -400,7 +236,6 @@ func _step_wheels(input: Dictionary) -> void:
 		wheel_fx[i] = fx
 		wheel_vf[i] = v_forward
 
-		# brake torque [Nm], front/rear split; ABS reduces locking wheels
 		var axle_bias := bias if _front_mask[i] else 1.0 - bias
 		var this_brake := brake_torque * axle_bias * 0.5
 		if bool(assists_on.get("abs", false)) and slip_ratio < 0.0:
@@ -412,17 +247,10 @@ func _step_wheels(input: Dictionary) -> void:
 					clampf((-slip_ratio + abs_start) / 0.25, 0.0, 1.0)
 				)
 
-				# wheel spin dynamics: I * dw = drive - Fx*r - brake
-
-				# bearing / drivetrain drag: kills numerical limit cycles
-
-				# brake cannot reverse wheel rotation direction within one tick
 		var net_torque := drive_torque * (1.0 if _driven_mask[i] else 0.0) - fx * wheel_radius
 		net_torque -= signf(wheel_spin[i]) * this_brake
-		# bearing / drivetrain drag: kills numerical limit cycles
 		net_torque -= float(_tires.get("spin_damp_nms", 1.2)) * wheel_spin[i]
 		wheel_spin[i] += net_torque / spin_inertia * TICK_DT
-		# brake cannot reverse wheel rotation direction within one tick
 		if (
 			brake > 0.0
 			and drive_torque == 0.0
@@ -520,24 +348,16 @@ func _update_visual_wheels() -> void:
 		if holder == null:
 			continue
 
-			# wheel center hangs below the attach point by (rest_length - compression)
-
-			# rolling around the axle (local X axis of the cylinder mesh)
 		var mesh := holder.get_node_or_null("Mesh") as MeshInstance3D
 		if mesh == null:
 			continue
 
-			# wheel center hangs below the attach point by (rest_length - compression)
-
-			# rolling around the axle (local X axis of the cylinder mesh)
 		var compression := clampf(
 			rest_length + _wheel_radius() - _wheel_ray_distance(i), 0.0, rest_length
 		)
-		# wheel center hangs below the attach point by (rest_length - compression)
 		holder.position = _wheel_local_pos[i] - Vector3(0, rest_length - compression, 0)
 		if _front_mask[i]:
 			holder.rotation.y = steering_angle
-			# rolling around the axle (local X axis of the cylinder mesh)
 		mesh.rotate_object_local(Vector3(1, 0, 0), wheel_spin[i] * TICK_DT)
 
 
