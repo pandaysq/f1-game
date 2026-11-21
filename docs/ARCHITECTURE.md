@@ -20,6 +20,17 @@ tracks/*.json  →  track_format (парсер + валидация)  →  track
                 →  сцена трассы (TrackRoot)  →  заезд (режим, тайминг)
 ```
 
+## Поток гонки (Phase 2)
+
+```
+race_config.json ─┐
+tracks/*.json ────┼→ RaceSession (грид, круги, позиции, DRS-правила, wake)
+vehicle.json ─────┤        ↑ состояния машин каждый тик {pos, forward, speed}
+                  │   main.gd (режим race; APEX_MODE=tt — Time Trial)
+RacingLine ──→ SpeedProfile ──→ AiDriver (×7) ──→ car.external_input
+                                игрок ──→ Input Map (+ DRS на E)
+```
+
 Трассы — данные, не код. Валидатор (`tracks/validate_tracks.gd`) гоняется в CI и
 локально.
 
@@ -32,7 +43,8 @@ tracks/*.json  →  track_format (парсер + валидация)  →  track
 
 ```
 scenes/          сцены (main, car, track, ui)
-scripts/         GDScript: track_format, track_gen, vehicle, rules, hud
+scripts/         GDScript: track_format, track_gen, vehicle, ai, rules, hud,
+                 camera_rig
 assets/          процедурные материалы, data-файлы констант
 tracks/          JSON-данные трасс + валидатор
 tests/           headless-тесты (extends SceneTree, без сторонних плагинов)
@@ -44,6 +56,15 @@ docs/            PLAN, ARCHITECTURE, DECISIONS, PHYSICS, KNOWN_ISSUES
 | Синглтон | Назначение |
 |---|---|
 | `Settings` | ассисты (тумблеры), качество графики (заготовка фазы 9) |
+
+## Коллизии (Phase 2)
+
+- Слой 1 — трасса (StaticBody3D: дорога — боксовые слэбы по сегментам,
+  поребрики/барьеры — trimesh, трава — plane + skirt).
+- Слой 2 — машины (RigidBody3D, бокс 1.4×0.5×4.3). Маска машины 1|2:
+  трасса + другие машины. Лучи колёс маскируют только слой 1.
+- Дорога — боксы, не trimesh: в trimesh находились субметровые щели между
+  полосами треугольников (машина проваливалась наполовину).
 
 ## Тесты
 
