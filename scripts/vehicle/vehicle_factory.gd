@@ -33,8 +33,11 @@ static func _build_collision(car: Car) -> void:
 	collision.shape = shape
 	# box centered at CG height below origin (origin = wheel attach plane)
 	# box bottom stays ~6 cm above the road at rest (origin = wheel attach plane)
+	# box bottom sits ~10 cm above the road at rest: clears the 6 cm kerbs,
+	# so a hard kerb strike cannot jam the underfloor into a zero-thickness
+	# ribbon and tunnel the car through the road (phase-2 lesson)
 	collision.position = Vector3(
-		0.0, -(float(data.get("center_of_mass_height_m", 0.30)) - 0.05), 0.0
+		0.0, -(float(data.get("center_of_mass_height_m", 0.30)) - 0.09), 0.0
 	)
 	car.add_child(collision)
 

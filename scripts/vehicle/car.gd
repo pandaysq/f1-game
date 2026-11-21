@@ -45,6 +45,11 @@ var _slip_lat_state: Array[float] = [0.0, 0.0, 0.0, 0.0]
 var _wheel_local_pos: Array[Vector3] = []
 var _front_mask: Array[bool] = [true, true, false, false]
 var _driven_mask: Array[bool] = [false, false, true, true]
+# rate-limited traction-control cut factor (0 = no cut): a static slip
+# threshold + gain creates a thrust-slip-pitch limit cycle (~10 Hz hop)
+# at full throttle near the grip limit; slewing the cut rate-limits the
+# loop energy instead of pumping it
+var _tc_cut: float = 0.0
 var _tires: Dictionary
 var _susp: Dictionary
 var _aero: Dictionary
@@ -179,14 +184,17 @@ func _step_wheels(input: Dictionary) -> void:
 		powertrain.request_shift(-1, sim_time)
 	var drive_torque := powertrain.wheel_torque(sim_time, throttle)
 	if bool(assists_on.get("traction_control", false)):
+		# TC as a rate-limited controller: target cut from slip error,
+		# slew toward it; no static on/off threshold hunting
 		var rear_slip := maxf(wheel_slip_ratios[2], wheel_slip_ratios[3])
-		var tc_start := float(_assist_params.get("tc_slip_threshold", 0.25))
+		var tc_start := float(_assist_params.get("tc_slip_threshold", 0.15))
+		var tc_min := float(_assist_params.get("tc_throttle_cut", 0.1))
+		var target_cut := 0.0
 		if rear_slip > tc_start:
-			drive_torque *= lerpf(
-				1.0,
-				float(_assist_params.get("tc_throttle_cut", 0.1)),
-				clampf((rear_slip - tc_start) / 0.25, 0.0, 1.0)
-			)
+			target_cut = clampf((rear_slip - tc_start) / 0.15, 0.0, 1.0) * (1.0 - tc_min)
+		var slew := float(_assist_params.get("tc_slew_per_s", 8.0))
+		_tc_cut = move_toward(_tc_cut, target_cut, slew * TICK_DT)
+		drive_torque *= 1.0 - _tc_cut
 	var compressions: Array[float] = [0.0, 0.0, 0.0, 0.0]
 	for i in range(4):
 		compressions[i] = _raycast_compression(i, rest_length, wheel_radius, space)
@@ -211,9 +219,16 @@ func _step_wheels(input: Dictionary) -> void:
 		apply_force(up * fz, attach_global - global_transform.origin)
 
 		var steer := steering_angle if _front_mask[i] else 0.0
-		var forward := (global_transform.basis.z * -1.0).rotated(global_transform.basis.y, steer)
+		# positive steer = wheels point RIGHT (input axis convention: D = +1);
+		# a +Y rotation turns -Z toward -X (left), hence the minus sign
+		var forward := (global_transform.basis.z * -1.0).rotated(global_transform.basis.y, -steer)
 		var side := forward.cross(Vector3.UP).normalized()
-		var contact := attach_global - up * (rest_length - compression)
+		# tire forces act at the CONTACT PATCH: full ray distance from the
+		# attach point, INCLUDING the wheel radius. Phase-1 bug: the radius was
+		# missing, so fx/fy applied 0.33 m high — lateral force above the CG
+		# jacked the body into the turn and unloaded the outside wheels
+		# (diagonal load flapping on any real cornering).
+		var contact := attach_global - up * (rest_length + wheel_radius - compression)
 		var contact_velocity := _velocity_at(contact)
 
 		var v_forward := contact_velocity.dot(forward)
@@ -385,7 +400,7 @@ func _update_visual_wheels() -> void:
 		)
 		holder.position = _wheel_local_pos[i] - Vector3(0, rest_length - compression, 0)
 		if _front_mask[i]:
-			holder.rotation.y = steering_angle
+			holder.rotation.y = -steering_angle
 		mesh.rotate_object_local(Vector3(1, 0, 0), wheel_spin[i] * TICK_DT)
 
 
@@ -413,6 +428,7 @@ func reset_to(transform: Transform3D) -> void:
 	angular_velocity = Vector3.ZERO
 	steering_angle = 0.0
 	sim_time = 0.0
+	powertrain.reset()
 	for i in range(4):
 		wheel_spin[i] = 0.0
 		_slip_lon_state[i] = 0.0

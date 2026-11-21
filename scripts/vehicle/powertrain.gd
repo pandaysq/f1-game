@@ -66,6 +66,14 @@ func update_rpm(wheel_angular_speed: float, throttle: float) -> void:
 	rpm = minf(rpm, redline_rpm() * 1.02)
 
 
+## Zero all dynamic state (used by Car.reset_to so a recovered car is not
+## stuck with an absolute-time shift cut: sim_time restarts at 0).
+func reset() -> void:
+	gear = 1
+	rpm = idle_rpm()
+	shifting_until = 0.0
+
+
 func request_shift(direction: int, sim_time: float) -> void:
 	var low := 0  # reverse
 	var high := _ratios().size()
