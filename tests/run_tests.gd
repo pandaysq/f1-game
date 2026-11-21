@@ -7,6 +7,7 @@ extends SceneTree
 ## Exit code 0 = all passed.
 
 const PhysicsDriverScript := preload("res://tests/physics_driver.gd")
+const Phase2DriverScript := preload("res://tests/phase2_driver.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -18,11 +19,16 @@ var _scenarios: Array[Dictionary] = [
 	{"name": "steer_right", "duration_ticks": 420},
 	{"name": "accel_det", "duration_ticks": 840},
 	{"name": "accel_det", "duration_ticks": 840},
+	{"name": "aero_clean", "duration_ticks": 1680},
+	{"name": "aero_wake", "duration_ticks": 1680},
+	{"name": "aero_drs", "duration_ticks": 1680},
+	{"name": "car_collision", "duration_ticks": 1800},
+	{"name": "ai_lap", "duration_ticks": 11400},
 ]
 var _current_scenario: Dictionary = {}
 var _results: Dictionary = {}
 var _world: Node3D = null
-var _driver: PhysicsTestDriver = null
+var _driver: Node = null
 
 
 func _initialize() -> void:
@@ -30,6 +36,8 @@ func _initialize() -> void:
 	_test_config()
 	_test_track_validator()
 	_test_time_trial_logic()
+	_test_racing_line_and_profile()
+	_test_race_logic()
 	if not _failures.is_empty():
 		_finish()
 		return
@@ -191,6 +199,20 @@ func _start_next_scenario() -> void:
 		_finish()
 		return
 	_current_scenario = _scenarios.pop_front()
+	var scenario_name: String = _current_scenario["name"]
+	if scenario_name == "ai_lap":
+		_start_ai_lap()
+	elif (
+		scenario_name == "aero_clean" or scenario_name == "aero_wake" or scenario_name == "aero_drs"
+	):
+		_start_aero(scenario_name)
+	elif scenario_name == "car_collision":
+		_start_car_collision()
+	else:
+		_start_classic()
+
+
+func _start_classic() -> void:
 	_world = Node3D.new()
 	root.add_child(_world)
 	_build_ground(_world)
@@ -201,6 +223,68 @@ func _start_next_scenario() -> void:
 	_driver.car = car
 	_driver.scenario = _current_scenario["name"]
 	_driver.duration_ticks = _current_scenario["duration_ticks"]
+	_world.add_child(_driver)
+	_driver.done.connect(_on_scenario_done)
+
+
+func _start_ai_lap() -> void:
+	_world = Node3D.new()
+	root.add_child(_world)
+	var track := TrackData.load_from("res://tracks/alpha_loop.json")
+	TrackBuilder.build(track, _world)
+	var line := RacingLine.build(track, 2.0, 0.9, 9)
+	var vehicle: Dictionary = JSON.parse_string(
+		FileAccess.get_file_as_string("res://assets/data/vehicle.json")
+	)
+	var profile := SpeedProfile.build(line, vehicle, 0.65)
+	var car := VehicleFactory.build()
+	_world.add_child(car)
+	car.global_transform = TrackBuilder.spawn_transform(track)
+	var ai := AiDriver.new()
+	_world.add_child(ai)
+	ai.setup(car, track, line, profile, {"mu_eff": 0.65, "pace": 1.0, "steer_noise": 0.01}, 4242)
+	_driver = Phase2DriverScript.new()
+	_driver.scenario = "ai_lap"
+	_driver.duration_ticks = _current_scenario["duration_ticks"]
+	_driver.car = car
+	_driver.track = track
+	_driver.ai = ai
+	ai.reset_requested.connect(func() -> void: _driver.resets += 1)
+	_world.add_child(_driver)
+	_driver.done.connect(_on_scenario_done)
+
+
+func _start_aero(scenario_name: String) -> void:
+	_world = Node3D.new()
+	root.add_child(_world)
+	_build_ground(_world)
+	var car := VehicleFactory.build()
+	_world.add_child(car)
+	car.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, 0.7, 0))
+	_driver = Phase2DriverScript.new()
+	_driver.scenario = scenario_name
+	_driver.duration_ticks = _current_scenario["duration_ticks"]
+	_driver.car = car
+	_world.add_child(_driver)
+	_driver.done.connect(_on_scenario_done)
+
+
+func _start_car_collision() -> void:
+	_world = Node3D.new()
+	root.add_child(_world)
+	_build_ground(_world)
+	var car := VehicleFactory.build()
+	_world.add_child(car)
+	car.global_transform = Transform3D(Basis.IDENTITY, Vector3(0, 0.7, 0))
+	var car_b := VehicleFactory.build()
+	_world.add_child(car_b)
+	# cars overlap by 0.8 m side by side: solver must separate them
+	car_b.global_transform = Transform3D(Basis.IDENTITY, Vector3(1.0, 0.7, 0))
+	_driver = Phase2DriverScript.new()
+	_driver.scenario = "car_collision"
+	_driver.duration_ticks = _current_scenario["duration_ticks"]
+	_driver.car = car
+	_driver.car_b = car_b
 	_world.add_child(_driver)
 	_driver.done.connect(_on_scenario_done)
 
@@ -226,8 +310,17 @@ func _on_scenario_done() -> void:
 	_start_next_scenario()
 
 
-func _evaluate(driver: PhysicsTestDriver) -> void:
+func _evaluate(driver: Node) -> void:
 	var scenario: String = _current_scenario["name"]
+	if scenario == "aero_clean" or scenario == "aero_wake" or scenario == "aero_drs":
+		_evaluate_aero(driver)
+		return
+	if scenario == "car_collision":
+		_evaluate_car_collision(driver)
+		return
+	if scenario == "ai_lap":
+		_evaluate_ai_lap(driver)
+		return
 	if scenario == "no_free_speed":
 		var max_speed := 0.0
 		for i in range(driver.settle_ticks, driver.telemetry.size()):
@@ -254,7 +347,7 @@ func _evaluate(driver: PhysicsTestDriver) -> void:
 			)
 
 
-func _evaluate_accel_brake(driver: PhysicsTestDriver) -> void:
+func _evaluate_accel_brake(driver: Node) -> void:
 	var max_speed := 0.0
 	for entry in driver.telemetry:
 		max_speed = maxf(max_speed, entry["speed"])
@@ -320,3 +413,240 @@ func _finish() -> void:
 		for failure in _failures:
 			printerr("  - %s" % failure)
 		quit(1)
+
+
+# ------------------------------------------------------- phase 2: AI core
+
+
+func _test_racing_line_and_profile() -> void:
+	print("[racing line + speed profile]")
+	var track := TrackData.load_from("res://tracks/alpha_loop.json")
+	var line := RacingLine.build(track, 2.0, 0.9, 9)
+	_check(line.points.size() == track.point_count(), "line has one point per track point")
+	var in_bounds := true
+	var nan := false
+	for i in range(line.points.size()):
+		var d: float = line.points[i].distance_to(track.points[i])
+		if d > track.widths[i] * 0.5:
+			in_bounds = false
+		if is_nan(d) or is_nan(line.offsets[i]):
+			nan = true
+	_check(in_bounds, "line stays within the track width")
+	_check(not nan, "line has no NaNs")
+	var vehicle: Dictionary = JSON.parse_string(
+		FileAccess.get_file_as_string("res://assets/data/vehicle.json")
+	)
+	var profile := SpeedProfile.build(line, vehicle, 0.65)
+	var ok := true
+	var vmin := INF
+	var vmax := -INF
+	for v in profile.speeds:
+		if is_nan(v) or v < 2.0 or v > 90.0:
+			ok = false
+		vmin = minf(vmin, v)
+		vmax = maxf(vmax, v)
+	_check(ok, "profile speeds are finite and sane (2..90 m/s)")
+	_check(vmax > 35.0, "profile uses the straights (%.1f m/s max)" % vmax)
+	_check(vmin < 12.0, "profile respects the tightest corner (%.1f m/s min)" % vmin)
+	# braking pass monotonicity: speeds never demand more than a_brake
+	# between consecutive points
+	var brake_ok := true
+	var n := line.points.size()
+	for i in range(n):
+		var v0: float = profile.at(i)
+		var v1: float = profile.at((i + 1) % n)
+		var dist: float = line.lengths[i]
+		var a := (v0 * v0 - v1 * v1) / (2.0 * maxf(dist, 0.1)) if v0 > v1 else 0.0
+		if a > 18.0:
+			brake_ok = false
+	_check(brake_ok, "braking decel within 18 m/s^2 everywhere")
+	# difficulty ordering: legend profile >= pro >= rookie corner speeds
+	var p_rookie := SpeedProfile.build(line, vehicle, 0.58)
+	var p_legend := SpeedProfile.build(line, vehicle, 0.72)
+	var legend_faster := true
+	for i in range(n):
+		if p_legend.at(i) < p_rookie.at(i) - 0.01:
+			legend_faster = false
+	_check(legend_faster, "legend corner speeds >= rookie corner speeds")
+
+
+# ------------------------------------------------------ phase 2: race logic
+
+
+func _test_race_logic() -> void:
+	print("[race session]")
+	var track := TrackData.load_from("res://tracks/alpha_loop.json")
+	var config: Dictionary = JSON.parse_string(
+		FileAccess.get_file_as_string("res://assets/data/race_config.json")
+	)
+	var session := RaceSession.new(track, config, 2)
+	# grid transforms: distinct, behind the start line, inside the road
+	var grid := RaceSession.new(track, config, 8).grid_transforms()
+	_check(grid.size() == 8, "grid has 8 transforms")
+	var distinct := true
+	var on_road := true
+	var behind := true
+	var seen: Array[Vector3] = []
+	for t in grid:
+		var p: Vector3 = t.origin
+		for q in seen:
+			if p.distance_to(q) < 2.0:
+				distinct = false
+		seen.append(p)
+		var nearest := 0
+		var nearest_d := INF
+		for i in range(track.point_count()):
+			var d: float = track.points[i].distance_to(p)
+			if d < nearest_d:
+				nearest_d = d
+				nearest = i
+		if nearest_d > track.widths[nearest] * 0.5 + 1.0:
+			on_road = false
+		# grid must sit behind the start (progress ~ 1-0.1, not past it)
+		var prog := float(nearest) / float(track.point_count())
+		if not (prog > 0.85 or prog < 0.05):
+			behind = false
+	_check(distinct, "grid slots are distinct")
+	_check(on_road, "grid slots are on the road")
+	_check(behind, "grid slots sit behind the start line")
+
+	# synthetic race: two cars, the leader one point ahead each step
+	var laps_seen: Array = []
+	session.lap_completed.connect(
+		func(car_index: int, lap_time: float) -> void: laps_seen.append(car_index)
+	)
+	config["laps"] = 1
+	session.total_laps = 1
+	session.start_race()
+	var n := track.point_count()
+	for step in range(n * 2 + 8):
+		var states: Array = []
+		for car in range(2):
+			var i := (step + car) % n
+			(
+				states
+				. append(
+					{
+						"pos": track.points[i],
+						"forward": track.direction_at(i),
+						"speed": 30.0,
+					}
+				)
+			)
+		session.update(states, 1.0 / 120.0)
+	_check(laps_seen.size() == 2, "two lap completions counted (%d)" % laps_seen.size())
+	_check(laps_seen[0] == 1, "the car ahead completes the lap first")
+	var order := session.positions()
+	_check(order[0] == 1, "leader classified ahead")
+	var cls: Array = session.classification
+	_check(not cls.is_empty(), "classification exists after the race")
+	if not cls.is_empty():
+		_check(int(cls[0]["position"]) == 1, "winner at P1")
+		_check(int(cls[0]["car_index"]) == 1, "winner is the leader car")
+
+	# DRS availability with synthetic states: two cars nose-to-tail in a
+	# DRS zone at speed -> available; far apart -> not
+	var drs_session := RaceSession.new(track, config, 2)
+	drs_session.start_race()
+	var zone: Dictionary = track.drs_zones[0]
+	var zone_i := int(zone.get("start_index", 0)) + 2
+	var states: Array = [
+		{
+			"pos": track.points[zone_i],
+			"forward": track.direction_at(zone_i),
+			"speed": 70.0,
+		},
+	]
+	var ahead_i := (zone_i + 1) % track.point_count()
+	(
+		states
+		. append(
+			{
+				"pos": track.points[ahead_i],
+				"forward": track.direction_at(ahead_i),
+				"speed": 70.0,
+			}
+		)
+	)
+	drs_session.update(states, 1.0 / 120.0)
+	_check(drs_session.drs_available(0), "DRS available close behind in a zone")
+	_check(drs_session.wake_df(0) > 0.0, "dirty air factor positive behind a car")
+	_check(drs_session.wake_drag(0) > 0.0, "slipstream factor positive behind a car")
+	var far_states: Array = [
+		{
+			"pos": track.points[zone_i],
+			"forward": track.direction_at(zone_i),
+			"speed": 70.0,
+		},
+		{
+			"pos": track.points[(zone_i + 20) % track.point_count()],
+			"forward": track.direction_at((zone_i + 20) % track.point_count()),
+			"speed": 70.0,
+		},
+	]
+	drs_session.update(far_states, 1.0 / 120.0)
+	_check(not drs_session.drs_available(0), "DRS not available with a big gap")
+
+	# wake: solo car gets none (checked after the far-apart update)
+	var solo := RaceSession.new(track, config, 1)
+	solo.start_race()
+	solo.update(states.slice(0, 1), 1.0 / 120.0)
+	_check(solo.wake_df(0) == 0.0 and solo.wake_drag(0) == 0.0, "solo car has clean air")
+
+
+# -------------------------------------------------- phase 2 scenario checks
+
+
+func _evaluate_aero(driver: Node) -> void:
+	var d: Phase2Driver = driver as Phase2Driver
+	var scenario: String = _current_scenario["name"]
+	_results[scenario] = d.telemetry[d.telemetry.size() - 1]
+	if scenario == "aero_clean":
+		return
+	if scenario == "aero_wake":
+		var clean: float = _results.get("aero_clean", 0.0)
+		_check(
+			d.telemetry[d.telemetry.size() - 1] > clean + 0.5,
+			(
+				"slipstream raises top speed (%.1f vs %.1f m/s)"
+				% [d.telemetry[d.telemetry.size() - 1], clean]
+			)
+		)
+	elif scenario == "aero_drs":
+		var clean: float = _results.get("aero_clean", 0.0)
+		_check(
+			d.telemetry[d.telemetry.size() - 1] > clean + 0.5,
+			"DRS raises top speed (%.1f vs %.1f m/s)" % [d.telemetry[d.telemetry.size() - 1], clean]
+		)
+
+
+func _evaluate_car_collision(driver: Node) -> void:
+	var d: Phase2Driver = driver as Phase2Driver
+	var min_y := INF
+	for entry in d.telemetry:
+		if entry is Array:
+			min_y = minf(min_y, minf(entry[0], entry[1]))
+	_check(min_y > 0.4, "colliding cars stay on the ground (y >= %.2f)" % min_y)
+	var car: Car = d.car
+	var car_b: Car = d.car_b
+	# boxes are 1.4 m wide: >1.2 m apart means no deep interpenetration lock
+	_check(
+		absf(car.global_transform.origin.x - car_b.global_transform.origin.x) > 1.2,
+		(
+			"overlapping cars separate (%.2f m apart)"
+			% absf(car.global_transform.origin.x - car_b.global_transform.origin.x)
+		)
+	)
+	var upright := car.global_transform.basis.y.dot(Vector3.UP) > 0.7
+	var upright_b := car_b.global_transform.basis.y.dot(Vector3.UP) > 0.7
+	_check(upright and upright_b, "both cars stay upright after the collision")
+
+
+func _evaluate_ai_lap(driver: Node) -> void:
+	var d: Phase2Driver = driver as Phase2Driver
+	_check(d.laps >= 1, "AI completes a lap in 95 s (%d)" % d.laps)
+	_check(d.resets == 0, "AI needs no recovery resets (%d)" % d.resets)
+	_check(
+		d.max_off_center < 7.0 + 2.0,
+		"AI stays within road + kerb (max %.1f m off center)" % d.max_off_center
+	)

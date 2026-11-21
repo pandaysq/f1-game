@@ -98,7 +98,6 @@ def main():
     # (two ~3 m hairpins overlapping the road ribbon) is replaced by a
     # proper wide hairpin + esses.
     ctrl = [
-        (0.0, 180.0),
         (60.0, 182.0),
         (120.0, 172.0),
         (170.0, 140.0),
@@ -128,6 +127,7 @@ def main():
         (-60.0, 100.0),
         (-30.0, 130.0),
         (-8.0, 158.0),
+        (0.0, 180.0),
     ]
     dense = spline_points(ctrl, 24)
     pts, lap_len = resample(dense, POINT_SPACING)
@@ -221,6 +221,10 @@ def main():
         drs.append({"start_index": int(z_start), "end_index": int(z_end)})
     print("drs zones:", drs, "on straights:", [(r[0], r[1], r[2]) for r in runs[:3]])
 
+    # grid sits up to 8 m * ceil(grid/2) behind the spawn: keep ~40 m of
+    # straight behind the start line (the seam is mid-straight, the corner
+    # before it ends ~4 points back)
+    spawn_index = 4
     track = {
         "name": "Alpha Loop",
         "closed": True,
@@ -237,7 +241,7 @@ def main():
             {"name": "sector_1", "index": int(s1)},
             {"name": "sector_2", "index": int(s2)},
         ],
-        "spawn": {"point_index": 0, "offset_lateral": 0.0},
+        "spawn": {"point_index": int(spawn_index), "offset_lateral": 0.0},
         "drs_zones": drs,
         "camera_points": [],
         "scenery": {"grandstands": [], "trees_density": 0.0},

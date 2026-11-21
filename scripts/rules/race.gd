@@ -109,12 +109,13 @@ func update(car_states: Array, delta: float) -> void:
 	if not started:
 		return
 	race_time += delta
-	for i in range(car_states.size()):
+	var count := mini(car_count, car_states.size())
+	for i in range(count):
 		var state: Dictionary = car_states[i]
 		_track_car(i, state.get("pos", Vector3.ZERO) as Vector3, delta)
 	_update_wakes(car_states)
-	_update_drs(car_states)
 	_update_ahead()
+	_update_drs(car_states)
 	if not classification.is_empty():
 		return
 	var all_done := true
@@ -180,7 +181,8 @@ func _update_wakes(car_states: Array) -> void:
 	var dirty_m := float(wake.get("dirty_air_distance_m", 12.0))
 	var slip_m := float(wake.get("slipstream_distance_m", 25.0))
 	var window_m := float(wake.get("lateral_window_m", 3.5))
-	for i in range(car_count):
+	var count := mini(car_count, car_states.size())
+	for i in range(count):
 		_wake_df[i] = 0.0
 		_wake_drag[i] = 0.0
 		var me: Dictionary = car_states[i]
@@ -211,7 +213,8 @@ func _update_drs(car_states: Array) -> void:
 	var min_speed := float(drs.get("min_speed_mps", 60.0))
 	var gap_s := float(drs.get("gap_to_car_ahead_s", 1.0))
 	var n := track.point_count()
-	for i in range(car_count):
+	var count := mini(car_count, car_states.size())
+	for i in range(count):
 		_drs_zone[i] = false
 		_drs_available[i] = false
 		if not enabled or finished[i]:
@@ -254,7 +257,8 @@ func _distance_ahead(ahead: int, i: int) -> float:
 
 
 func _update_ahead() -> void:
-	for i in range(car_count):
+	var count := mini(car_count, progress.size())
+	for i in range(count):
 		_cars_ahead[i] = -1
 		var best_dist := INF
 		for j in range(car_count):
