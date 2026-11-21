@@ -10,6 +10,7 @@ var widths: Array[float] = []
 var banking: Array[float] = []
 var surfaces: Dictionary = {}  # name -> {grip: float}
 var timing_lines: Array[Dictionary] = []  # {name, index}
+var drs_zones: Array[Dictionary] = []  # {start_index, end_index}
 var spawn_index: int = 0
 var spawn_offset_lateral: float = 0.0
 var source_path: String = ""
@@ -47,6 +48,9 @@ static func parse(text: String, source_path: String = "") -> TrackData:
 
 	for line_v: Variant in d.get("timing_lines", []):
 		track.timing_lines.append(line_v as Dictionary)
+
+	for zone_v: Variant in d.get("drs_zones", []):
+		track.drs_zones.append(zone_v as Dictionary)
 
 	var spawn: Dictionary = d.get("spawn", {})
 	track.spawn_index = int(spawn.get("point_index", 0))

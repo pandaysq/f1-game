@@ -9,14 +9,16 @@ const TIRE_COLOR := Color(0.08, 0.08, 0.08)
 
 
 ## Creates a Car (RigidBody3D) with collision shape and visual meshes.
-static func build() -> Car:
+## livery: optional override of the red accents (AI field colors).
+## Layer 2 = cars, mask 1|2 = track + other cars (phase-2 collisions).
+static func build(livery: Color = RED_LIVERY, name: String = "PlayerCar") -> Car:
 	var car := Car.new()
-	car.name = "PlayerCar"
+	car.name = name
 	car.collision_layer = 2
-	car.collision_mask = 1
+	car.collision_mask = 1 | 2
 
 	_build_collision(car)
-	_build_visuals(car)
+	_build_visuals(car, livery)
 	return car
 
 
@@ -42,7 +44,7 @@ static func _build_collision(car: Car) -> void:
 	car.add_child(collision)
 
 
-static func _build_visuals(car: Car) -> void:
+static func _build_visuals(car: Car, livery: Color) -> void:
 	var visuals := Node3D.new()
 	visuals.name = "Visuals"
 	car.add_child(visuals)
@@ -59,20 +61,12 @@ static func _build_visuals(car: Car) -> void:
 
 	# tub + nose + sidepods + wings, all boxes, cockpit view friendly
 	_add_box(visuals, "Tub", Vector3(0.75, 0.45, 1.6), Vector3(0, -cg + 0.28, -0.4), DARK_LIVERY)
-	_add_box(visuals, "Nose", Vector3(0.4, 0.22, 1.9), Vector3(0, -cg + 0.18, -2.0), RED_LIVERY)
+	_add_box(visuals, "Nose", Vector3(0.4, 0.22, 1.9), Vector3(0, -cg + 0.18, -2.0), livery)
 	_add_box(
-		visuals,
-		"SidepodLeft",
-		Vector3(0.35, 0.3, 1.4),
-		Vector3(-0.62, -cg + 0.22, 0.15),
-		RED_LIVERY
+		visuals, "SidepodLeft", Vector3(0.35, 0.3, 1.4), Vector3(-0.62, -cg + 0.22, 0.15), livery
 	)
 	_add_box(
-		visuals,
-		"SidepodRight",
-		Vector3(0.35, 0.3, 1.4),
-		Vector3(0.62, -cg + 0.22, 0.15),
-		RED_LIVERY
+		visuals, "SidepodRight", Vector3(0.35, 0.3, 1.4), Vector3(0.62, -cg + 0.22, 0.15), livery
 	)
 	_add_box(
 		visuals, "EngineCover", Vector3(0.42, 0.35, 1.3), Vector3(0, -cg + 0.42, 0.55), DARK_LIVERY
@@ -84,7 +78,7 @@ static func _build_visuals(car: Car) -> void:
 		visuals, "RearWing", Vector3(1.5, 0.05, 0.45), Vector3(0, -cg + 0.65, 1.9), DARK_LIVERY
 	)
 	_add_box(
-		visuals, "RearWingPylon", Vector3(0.08, 0.35, 0.3), Vector3(0, -cg + 0.45, 1.9), RED_LIVERY
+		visuals, "RearWingPylon", Vector3(0.08, 0.35, 0.3), Vector3(0, -cg + 0.45, 1.9), livery
 	)
 
 	# wheels: FL FR RL RR

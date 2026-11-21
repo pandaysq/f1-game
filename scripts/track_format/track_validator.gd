@@ -36,6 +36,16 @@ static func validate(track: TrackData) -> Array[String]:
 	if track.spawn_index < 0 or track.spawn_index >= n:
 		problems.append("spawn point_index %d out of range" % track.spawn_index)
 
+	for zone in track.drs_zones:
+		var start_i := int(zone.get("start_index", -1))
+		var end_i := int(zone.get("end_index", -1))
+		if start_i < 0 or start_i >= n:
+			problems.append("drs zone start_index %d out of range" % start_i)
+		if end_i < 0 or end_i >= n:
+			problems.append("drs zone end_index %d out of range" % end_i)
+		if end_i <= start_i:
+			problems.append("drs zone %d..%d must have end > start" % [start_i, end_i])
+
 	return problems
 
 

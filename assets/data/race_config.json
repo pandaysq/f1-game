@@ -1,0 +1,22 @@
+{
+  "laps": 5,
+  "grid_size": 8,
+  "start": {
+    "countdown_s": 3.0
+  },
+  "ai": {
+    "count": 7,
+    "default_level": "pro",
+    "seed": 1234,
+    "levels": {
+      "rookie": {"mu_eff": 0.58, "pace": 0.94, "steer_noise": 0.02},
+      "pro": {"mu_eff": 0.65, "pace": 0.97, "steer_noise": 0.01},
+      "legend": {"mu_eff": 0.72, "pace": 1.0, "steer_noise": 0.0}
+    }
+  },
+  "drs": {
+    "enabled": true,
+    "min_speed_mps": 60.0,
+    "gap_to_car_ahead_s": 1.0
+  }
+}
