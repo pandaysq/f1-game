@@ -96,7 +96,21 @@
   },
   "aero": {
     "drag_coeff": 0.48,
-    "downforce_coeff": 1.0
+    "front_wing_coeff": 0.45,
+    "rear_wing_coeff": 0.55,
+    "wake": {
+      "dirty_air_distance_m": 12.0,
+      "slipstream_distance_m": 25.0,
+      "lateral_window_m": 3.5,
+      "downforce_loss_max": 0.3,
+      "dirty_rear_factor": 0.7,
+      "drag_cut_max": 0.45
+    },
+    "drs": {
+      "drag_cut": 0.28,
+      "rear_df_cut": 0.24,
+      "front_df_cut": 0.0
+    }
   },
   "assists": {
     "abs_slip_threshold": -0.25,

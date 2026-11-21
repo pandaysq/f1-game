@@ -15,6 +15,15 @@ const TICK_DT := 1.0 / 120.0
 ## shift_down. When non-null, real input is ignored.
 var external_input: Variant = null
 
+## Aero context (Phase 2), set each tick by the race session or tests:
+## - aero_wake_df   0..1 dirty air depth (short range) -> downforce loss
+## - aero_wake_drag  0..1 slipstream depth (long range) -> drag cut
+## - drs_active     rear wing flap open (activation rules live in race config)
+## Defaults keep Phase 1 clean-air behaviour (all zero).
+var aero_wake_df: float = 0.0
+var aero_wake_drag: float = 0.0
+var drs_active: bool = false
+
 var data: Dictionary = {}
 var powertrain: Powertrain
 var assists_on: Dictionary = {}
@@ -164,13 +173,10 @@ func _step_wheels(input: Dictionary) -> void:
 	powertrain.update_rpm(rear_speed, throttle)
 	if bool(assists_on.get("auto_gearbox", false)):
 		powertrain.auto_shift(rear_speed, throttle, sim_time)
-
 	elif bool(input.get("shift_up", false)):
 		powertrain.request_shift(1, sim_time)
-
 	elif bool(input.get("shift_down", false)):
 		powertrain.request_shift(-1, sim_time)
-
 	var drive_torque := powertrain.wheel_torque(sim_time, throttle)
 	if bool(assists_on.get("traction_control", false)):
 		var rear_slip := maxf(wheel_slip_ratios[2], wheel_slip_ratios[3])
@@ -181,11 +187,9 @@ func _step_wheels(input: Dictionary) -> void:
 				float(_assist_params.get("tc_throttle_cut", 0.1)),
 				clampf((rear_slip - tc_start) / 0.25, 0.0, 1.0)
 			)
-
 	var compressions: Array[float] = [0.0, 0.0, 0.0, 0.0]
 	for i in range(4):
 		compressions[i] = _raycast_compression(i, rest_length, wheel_radius, space)
-
 	for i in range(4):
 		var attach_global := to_global(_wheel_local_pos[i])
 		var up := global_transform.basis.y
@@ -196,7 +200,6 @@ func _step_wheels(input: Dictionary) -> void:
 			wheel_loads[i] = 0.0
 			wheel_spin[i] *= 0.999
 			continue
-
 		var compression_rate := _compression_rate(i)
 		var spring_force := spring_rate * compression + damper * compression_rate
 		spring_force = maxf(spring_force, 0.0)
@@ -246,7 +249,6 @@ func _step_wheels(input: Dictionary) -> void:
 					float(_assist_params.get("abs_brake_scale", 0.15)),
 					clampf((-slip_ratio + abs_start) / 0.25, 0.0, 1.0)
 				)
-
 		var net_torque := drive_torque * (1.0 if _driven_mask[i] else 0.0) - fx * wheel_radius
 		net_torque -= signf(wheel_spin[i]) * this_brake
 		net_torque -= float(_tires.get("spin_damp_nms", 1.2)) * wheel_spin[i]
@@ -310,10 +312,38 @@ func _apply_aero() -> void:
 	var speed := velocity.length()
 	if speed < 0.1:
 		return
-	var drag_force := float(_aero.get("drag_coeff", 0.48)) * speed * speed
+	var wake: Dictionary = _aero.get("wake", {})
+	var drs: Dictionary = _aero.get("drs", {})
+	# slipstream (long-range wake) cuts drag; an open DRS flap adds to it
+	var drag_mult := 1.0 - clampf(aero_wake_drag, 0.0, 1.0) * float(wake.get("drag_cut_max", 0.45))
+	if drs_active:
+		drag_mult *= 1.0 - float(drs.get("drag_cut", 0.28))
+	var drag_force := float(_aero.get("drag_coeff", 0.48)) * drag_mult * speed * speed
 	apply_central_force(-velocity.normalized() * drag_force)
-	var downforce := float(_aero.get("downforce_coeff", 1.0)) * speed * speed
-	apply_central_force(-Vector3.UP * downforce)
+	# wing balance: per-axle downforce applied at the wheel attach points.
+	# Dirty air hits the front wing first (front loss >= rear -> understeer,
+	# which is stability-friendly); an open DRS flap sheds rear downforce.
+	var dirty_front := clampf(aero_wake_df, 0.0, 1.0) * float(wake.get("downforce_loss_max", 0.3))
+	var dirty_rear := dirty_front * float(wake.get("dirty_rear_factor", 0.7))
+	var front_cf := float(_aero.get("front_wing_coeff", 0.45)) * (1.0 - dirty_front)
+	var rear_cf := float(_aero.get("rear_wing_coeff", 0.55)) * (1.0 - dirty_rear)
+	if drs_active:
+		front_cf *= 1.0 - float(drs.get("front_df_cut", 0.0))
+		rear_cf *= 1.0 - float(drs.get("rear_df_cut", 0.24))
+	var q := speed * speed
+	# local axle offsets from the body origin (wheel attach plane)
+	var front_offset := (
+		Vector3(0.0, 0.0, _wheel_local_pos[0].z)
+		if _wheel_local_pos.size() == 4
+		else Vector3(0.0, 0.0, -1.4)
+	)
+	var rear_offset := (
+		Vector3(0.0, 0.0, _wheel_local_pos[2].z)
+		if _wheel_local_pos.size() == 4
+		else Vector3(0.0, 0.0, 1.7)
+	)
+	apply_force(-Vector3.UP * front_cf * q, front_offset)
+	apply_force(-Vector3.UP * rear_cf * q, rear_offset)
 
 
 func _apply_assists(_input: Dictionary) -> void:
@@ -347,11 +377,9 @@ func _update_visual_wheels() -> void:
 		var holder := container.get_node_or_null("WheelHolder%d" % i) as Node3D
 		if holder == null:
 			continue
-
 		var mesh := holder.get_node_or_null("Mesh") as MeshInstance3D
 		if mesh == null:
 			continue
-
 		var compression := clampf(
 			rest_length + _wheel_radius() - _wheel_ray_distance(i), 0.0, rest_length
 		)
