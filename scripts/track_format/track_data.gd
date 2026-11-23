@@ -13,6 +13,9 @@ var timing_lines: Array[Dictionary] = []  # {name, index}
 var drs_zones: Array[Dictionary] = []  # {start_index, end_index}
 var spawn_index: int = 0
 var spawn_offset_lateral: float = 0.0
+var grid_slots: Array[Vector3] = []  # world-space road positions, pole first
+## True when an imported map provides its own track geometry and markings.
+var native_scenery: bool = false
 var source_path: String = ""
 
 
@@ -55,6 +58,9 @@ static func parse(text: String, source_path: String = "") -> TrackData:
 	var spawn: Dictionary = d.get("spawn", {})
 	track.spawn_index = int(spawn.get("point_index", 0))
 	track.spawn_offset_lateral = float(spawn.get("offset_lateral", 0.0))
+	for slot: Dictionary in d.get("grid_slots", []):
+		track.grid_slots.append(Vector3(float(slot["x"]), float(slot["y"]), float(slot["z"])))
+	track.native_scenery = bool(d.get("native_scenery", false))
 	return track
 
 

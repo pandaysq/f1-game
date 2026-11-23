@@ -179,6 +179,9 @@ static func _build_wheel(visuals: Node3D, index: int, position: Vector3, data: D
 	holder.name = "WheelHolder%d" % index
 	holder.position = position
 	visuals.add_child(holder)
+	var axle := Node3D.new()
+	axle.name = "Axle"
+	holder.add_child(axle)
 
 	var wheel_radius := float(data.get("wheel", {}).get("radius_m", 0.33))
 	var wheel_width := float(data.get("wheel", {}).get("width_m", 0.35))
@@ -196,7 +199,7 @@ static func _build_wheel(visuals: Node3D, index: int, position: Vector3, data: D
 	wheel_mat.albedo_color = TIRE_COLOR
 	wheel_mat.roughness = 0.95
 	wheel.material_override = wheel_mat
-	holder.add_child(wheel)
+	axle.add_child(wheel)
 
 	# rim so wheel rotation is visible
 	var rim := MeshInstance3D.new()
@@ -213,7 +216,7 @@ static func _build_wheel(visuals: Node3D, index: int, position: Vector3, data: D
 	rim_mat.roughness = 0.35
 	rim.material_override = rim_mat
 	rim.rotation.z = PI * 0.5
-	holder.add_child(rim)
+	axle.add_child(rim)
 
 
 ## Procedural fallback if the glb is missing (keeps tests green everywhere).

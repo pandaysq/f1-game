@@ -1,18 +1,17 @@
 extends Node3D
-## Phase 2 main scene: builds Alpha Loop, spawns the player car + 7 AI
+## Main scene: loads Endurance Run, spawns the player car + 7 AI
 ## cars, runs the offline race session (grid start, countdown, positions,
 ## DRS rules, aero wake) and wires camera / HUD / touch controls.
 ## Time Trial (phase 1) stays available: APEX_MODE=tt.
 
 const TICK_DT := 1.0 / 120.0
-const TRACK_PATH := "res://tracks/alpha_loop.json"
+const TRACK_PATH := "res://tracks/endurance_run.json"
 const RACE_CONFIG_PATH := "res://assets/data/race_config.json"
 const ENVIRONMENT_MODEL_PATH := "res://assets/models/environment/endurance_run.glb"
-## Backdrop placement: the endurance diorama (1104 x 744 m, local AABB at
-## x 159..1263, z 426..1170) must stay clear of the drivable area
-## (alpha_loop: x -120..224, z -131..183). Shift seats it ~140 m beyond the
-## +Z edge; visual-only, no collision, cars never reach it.
-const SCENERY_OFFSET := Vector3(0.0, -0.9, -100.0)
+## The endurance diorama is now the playable track: its own world-space road
+## centerline lives in tracks/endurance_run.json, so the scenery stays at its
+## authored coordinates.
+const SCENERY_OFFSET := Vector3.ZERO
 
 const AI_COLORS := [
 	Color(0.88, 0.09, 0.09),
@@ -46,6 +45,12 @@ var _shot_dir := ""
 var _shot_plan: Array = []  # sorted [[time: float, mode: String], ...]
 var _shot_timer := 0.0
 
+# Dev telemetry hook: APEX_TRACE=<seconds> prints car/session state every
+# second and quits when the timer runs out (headless drive tests).
+var _trace_left := 0.0
+var _trace_timer := 0.0
+var _trace_elapsed := 0.0
+
 @onready var debug_overlay: CanvasLayer = $DebugOverlay
 
 
@@ -70,6 +75,8 @@ func _ready() -> void:
 		_setup_race()
 	debug_overlay.visible = true
 	_init_screenshot_hook()
+	if not OS.get_environment("APEX_TRACE").is_empty():
+		_trace_left = maxf(OS.get_environment("APEX_TRACE").to_float(), 1.0)
 
 
 func _add_environment() -> void:
@@ -81,6 +88,44 @@ func _add_environment() -> void:
 	scenery.name = "SceneryEndurance"
 	scenery.position = SCENERY_OFFSET
 	add_child(scenery)
+	_add_scenery_collision(scenery)
+
+
+## The diorama has no collision of its own. Build a static trimesh per mesh so
+## the car (and the AI) can drive on the map road; road meshes get asphalt
+## grip, everything else is treated as grass/runoff.
+func _add_scenery_collision(root: Node) -> void:
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+			var mi := n as MeshInstance3D
+			var mesh_name := String(mi.name)
+			# Grid and finish decals sit above the actual asphalt collision.
+			if mesh_name.begins_with("C20-65_") or mesh_name.begins_with("C20-66_"):
+				continue
+			var road := _is_road_mesh(mesh_name)
+			var body := StaticBody3D.new()
+			body.name = "MapCollision"
+			body.collision_layer = 1
+			body.collision_mask = 1
+			body.set_meta("grip", 1.0 if road else 0.55)
+			body.set_meta("surface", "asphalt" if road else "grass")
+			var shape := CollisionShape3D.new()
+			shape.shape = mi.mesh.create_trimesh_shape()
+			if shape.shape is ConcavePolygonShape3D:
+				(shape.shape as ConcavePolygonShape3D).backface_collision = true
+			body.add_child(shape)
+			mi.add_child(body)
+		for child in n.get_children():
+			stack.append(child)
+
+
+func _is_road_mesh(mesh_name: String) -> bool:
+	for prefix in ["C20-15_", "C20-16_", "C20-17_", "C20-44_"]:
+		if mesh_name.begins_with(prefix):
+			return true
+	return false
 
 
 func _setup_race() -> void:
@@ -124,6 +169,7 @@ func _setup_race() -> void:
 	camera_rig = CameraRig.new(cars[0])
 	add_child(camera_rig)
 	camera_rig.cockpit_camera.current = true
+	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 
 	race_hud = RaceHud.new(cars[0], session, 0)
 	add_child(race_hud)
@@ -142,6 +188,7 @@ func _setup_time_trial() -> void:
 	camera_rig = CameraRig.new(car)
 	add_child(camera_rig)
 	camera_rig.cockpit_camera.current = true
+	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	hud = Hud.new(car, tt_session)
 	add_child(hud)
 	add_child(TouchControls.new())
@@ -243,13 +290,72 @@ func _on_ai_reset(driver: AiDriver) -> void:
 	driver.reset_to_line()
 
 
+func _on_camera_mode_changed(label: String) -> void:
+	if race_hud != null:
+		race_hud.show_message("CAMERA: " + label)
+
+
 func _process(delta: float) -> void:
+	if _trace_left > 0.0:
+		_trace_left -= delta
+		_trace_timer += delta
+		_trace_elapsed += delta
+		if _trace_timer >= 1.0:
+			_trace_timer = 0.0
+			_print_trace()
+		if _trace_left <= 0.0:
+			get_tree().quit()
 	if _shot_plan.is_empty():
 		return
 	_shot_timer += delta
 	while not _shot_plan.is_empty() and _shot_timer >= float(_shot_plan[0][0]):
 		var mode: String = _shot_plan.pop_front()[1]
 		_capture_shot(mode)
+
+
+## Dev telemetry: one line per car with speed, nearest centerline index and
+## how far it is from the centerline. Used by headless drive tests.
+func _print_trace() -> void:
+	if session == null:
+		return
+	var player_driver: AiDriver = null
+	for driver in drivers:
+		if driver.car == cars[0]:
+			player_driver = driver
+			break
+	if player_driver != null:
+		print(
+			"[trace] driver idx=%d target=%.1f steer=%.2f input=%s"
+			% [
+				player_driver._index,
+				player_driver.profile.at(player_driver._index),
+				player_driver._steer_cmd,
+				str(cars[0].external_input),
+			]
+		)
+	var parts: Array[String] = []
+	for i in range(cars.size()):
+		var car := cars[i]
+		var pos := car.global_transform.origin
+		var best_i := 0
+		var best_d := INF
+		for j in range(track.point_count()):
+			var d := pos.distance_squared_to(track.points[j])
+			if d < best_d:
+				best_d = d
+				best_i = j
+		parts.append(
+			"%d:%s v=%.1f idx=%d off=%.1f y=%.2f"
+			% [
+				i,
+				"P" if i == 0 else "AI",
+				car.linear_velocity.length() * 3.6,
+				best_i,
+				sqrt(best_d),
+				pos.y,
+			]
+		)
+	print("[trace] t=%.1f started=%s %s" % [_trace_elapsed, str(session.started), " | ".join(parts)])
 
 
 ## Runs one scripted lap segment for screenshot/CI visual checks.
@@ -293,6 +399,10 @@ func _capture_shot(mode: String) -> void:
 		camera_rig.activate_chase()
 	elif mode == "cockpit":
 		camera_rig.activate_cockpit()
+	elif mode == "tcam":
+		camera_rig.activate_t_cam()
+	elif mode == "tv":
+		camera_rig.activate_tv()
 	elif mode == "top":
 		var center := Vector3.ZERO
 		for p in track.points:

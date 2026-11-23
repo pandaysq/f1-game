@@ -80,7 +80,11 @@ func grid_transforms() -> Array[Transform3D]:
 	var out: Array[Transform3D] = []
 	var i := _start_line_index()
 	var center: Vector3 = track.points[i]
+	var authored_basis := TrackBuilder.alignment_basis(track.direction_at(i))
 	for car in range(car_count):
+		if car < track.grid_slots.size():
+			out.append(Transform3D(authored_basis, track.grid_slots[car] + Vector3.UP * 0.6))
+			continue
 		var row := car / 2
 		var dist := row_gap * float(row + 1)
 		var back := center - track.direction_at(i) * dist

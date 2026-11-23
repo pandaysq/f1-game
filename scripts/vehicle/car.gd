@@ -384,16 +384,10 @@ func _update_visual_wheels() -> void:
 	if container == null:
 		return
 
-		# wheel center hangs below the attach point by (rest_length - compression)
-
-		# rolling around the axle (local X axis of the cylinder mesh)
 	var rest_length := float(_susp.get("rest_length_m", 0.25))
 	for i in range(4):
 		var holder := container.get_node_or_null("WheelHolder%d" % i) as Node3D
 		if holder == null:
-			continue
-		var mesh := holder.get_node_or_null("Mesh") as MeshInstance3D
-		if mesh == null:
 			continue
 		var compression := clampf(
 			rest_length + _wheel_radius() - _wheel_ray_distance(i), 0.0, rest_length
@@ -401,7 +395,9 @@ func _update_visual_wheels() -> void:
 		holder.position = _wheel_local_pos[i] - Vector3(0, rest_length - compression, 0)
 		if _front_mask[i]:
 			holder.rotation.y = -steering_angle
-		mesh.rotate_object_local(Vector3(1, 0, 0), wheel_spin[i] * TICK_DT)
+		var axle := holder.get_node_or_null("Axle") as Node3D
+		if axle != null:
+			axle.rotation.x = wrapf(axle.rotation.x - wheel_spin[i] * TICK_DT, -PI, PI)
 
 
 func _wheel_radius() -> float:

@@ -26,12 +26,32 @@ static func build(track: TrackData, parent: Node3D) -> Node3D:
 	parent.add_child(root)
 
 	var ground_y := _ground_level(track)
-	_build_grass(root, track, ground_y)
-	_build_road(root, track)
-	_build_kerbs(root, track)
-	_build_barriers(root, track, ground_y)
-	_build_start_finish(root, track)
+	if track.native_scenery:
+		# Imported map owns the road/terrain look and collision. Keep a
+		# safety floor below it so a car that leaves the map never falls
+		# forever.
+		_build_safety_floor(root, track)
+	else:
+		_build_grass(root, track, ground_y)
+		_build_road(root, track)
+		_build_kerbs(root, track)
+		_build_barriers(root, track, ground_y)
+		_build_start_finish(root, track)
 	return root
+
+
+## Invisible catch plane below a native-scenery track.
+static func _build_safety_floor(root: Node3D, track: TrackData) -> void:
+	var body := StaticBody3D.new()
+	body.name = "SafetyFloor"
+	body.set_meta("grip", 0.55)
+	body.set_meta("surface", "grass")
+	var boundary := WorldBoundaryShape3D.new()
+	boundary.plane = Plane(Vector3.UP, _ground_level(track) - 2.0)
+	var shape := CollisionShape3D.new()
+	shape.shape = boundary
+	body.add_child(shape)
+	root.add_child(body)
 
 
 ## Ground level below the lowest track point: grass plane, skirt and

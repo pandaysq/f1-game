@@ -1,28 +1,42 @@
 class_name CameraRig
 extends Node3D
-## Cockpit camera (primary, FPV from driver seat) + chase camera (debug, V).
-## Cockpit follows the chassis rigidly; chase camera is spring-smoothed.
+## Camera set: cockpit (driver eye), T-cam (roll-hoop onboard), chase and TV.
+## Cockpit/T-cam ride the chassis rigidly; chase/TV are spring-smoothed.
+## V cycles the cameras.
 
-const CHASE_OFFSET_LOCAL := Vector3(0.0, 1.1, 3.8)
+signal mode_changed(label: String)
+
+enum Mode { COCKPIT, T_CAM, CHASE, TV }
+
+const MODE_LABELS := ["COCKPIT", "T-CAM", "CHASE", "TV"]
+
 ## Driver-eye position in car-local space (origin = wheel attach plane).
-## Calibrated on the glb cockpit: eye under the halo, wing mirror in view,
-## nose clearly visible. Tuning helper: APEX_COCKPIT_OVERRIDE="x,y,z".
-const COCKPIT_LOCAL := Vector3(-0.22, 0.52, 0.20)
+## Calibrated against the glb cockpit: eye behind the halo centre pillar,
+## above the rim, both mirrors at the frame edges. Tuning helper:
+## APEX_COCKPIT_OVERRIDE="x,y,z".
+const COCKPIT_LOCAL := Vector3(0.0, 0.60, -0.10)
+const COCKPIT_PITCH := deg_to_rad(-3.0)
+## Roll-hoop onboard camera, just above the airbox.
+const T_CAM_LOCAL := Vector3(0.0, 0.98, 0.12)
+const CHASE_OFFSET_LOCAL := Vector3(0.0, 1.8, 5.6)
+const CHASE_AIM_LOCAL := Vector3(0.0, 0.5, -1.8)
+const TV_OFFSET_LOCAL := Vector3(3.2, 3.4, 8.5)
+const TV_AIM_LOCAL := Vector3(0.0, 0.5, 0.0)
 
 var cockpit_camera: Camera3D
+var t_cam: Camera3D
 var chase_camera: Camera3D
+var tv_camera: Camera3D
 
 var _car: Car
+var _mode: int = Mode.COCKPIT
 
 
 func _init(car: Car) -> void:
 	_car = car
 
-	cockpit_camera = Camera3D.new()
-	cockpit_camera.name = "CockpitCamera"
-	# driver eyes: under the glb halo pod (pod spans y 0.59..0.71 above the
-	# attach plane, cockpit sits ~0.3 m behind the axle midpoint)
-	cockpit_camera.position = COCKPIT_LOCAL
+	cockpit_camera = _make_camera("CockpitCamera", COCKPIT_LOCAL, 78.0, 0.05)
+	cockpit_camera.rotation.x = COCKPIT_PITCH
 	var override := OS.get_environment("APEX_COCKPIT_OVERRIDE")
 	if not override.is_empty():
 		var parts := override.split(",")
@@ -30,65 +44,95 @@ func _init(car: Car) -> void:
 			cockpit_camera.position = Vector3(
 				parts[0].to_float(), parts[1].to_float(), parts[2].to_float()
 			)
-	cockpit_camera.fov = 78.0
-	cockpit_camera.near = 0.05
-	add_child(cockpit_camera)
 
-	chase_camera = Camera3D.new()
-	chase_camera.name = "ChaseCamera"
-	chase_camera.fov = 70.0
-	add_child(chase_camera)
+	t_cam = _make_camera("TCam", T_CAM_LOCAL, 70.0, 0.05)
+	chase_camera = _make_camera("ChaseCamera", Vector3.ZERO, 70.0, 0.10)
+	tv_camera = _make_camera("TvCamera", Vector3.ZERO, 58.0, 0.20)
+	chase_camera.top_level = true
+	tv_camera.top_level = true
 
-	cockpit_camera.current = true
+	_set_mode(Mode.COCKPIT, false)
+
+
+func _make_camera(camera_name: String, pos: Vector3, fov: float, near: float) -> Camera3D:
+	var cam := Camera3D.new()
+	cam.name = camera_name
+	cam.position = pos
+	cam.fov = fov
+	cam.near = near
+	add_child(cam)
+	return cam
+
+
+func current_mode_label() -> String:
+	return MODE_LABELS[_mode]
 
 
 func activate_cockpit() -> void:
-	cockpit_camera.current = true
+	_set_mode(Mode.COCKPIT)
 
 
 func activate_chase() -> void:
-	if not chase_camera.current:
-		chase_camera.current = true
-		_snap_chase()
+	_set_mode(Mode.CHASE)
+
+
+func activate_t_cam() -> void:
+	_set_mode(Mode.T_CAM)
+
+
+func activate_tv() -> void:
+	_set_mode(Mode.TV)
+
+
+func _set_mode(mode: int, announce: bool = true) -> void:
+	_mode = mode
+	cockpit_camera.current = mode == Mode.COCKPIT
+	t_cam.current = mode == Mode.T_CAM
+	chase_camera.current = mode == Mode.CHASE
+	tv_camera.current = mode == Mode.TV
+	if mode == Mode.CHASE:
+		_snap(chase_camera, _follow_transform(CHASE_OFFSET_LOCAL, CHASE_AIM_LOCAL))
+	elif mode == Mode.TV:
+		_snap(tv_camera, _follow_transform(TV_OFFSET_LOCAL, TV_AIM_LOCAL))
+	if announce:
+		mode_changed.emit(MODE_LABELS[_mode])
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_camera"):
-		if cockpit_camera.current:
-			activate_chase()
-		else:
-			activate_cockpit()
+		_set_mode((_mode + 1) % MODE_LABELS.size())
 
 
-func _snap_chase() -> void:
-	chase_camera.global_transform = _desired_chase_transform()
+func _snap(camera: Camera3D, target: Transform3D) -> void:
+	camera.global_transform = target
 
 
-func _physics_process(_delta: float) -> void:
-	# rig rides the car: cockpit camera is car-local, chase camera overrides
-	# its own global transform explicitly below (parent transform is ignored)
+func _physics_process(delta: float) -> void:
 	global_transform = _car.global_transform
-	# FOV kick for speed feeling (cockpit only)
 	var speed := _car.linear_velocity.length()
 	var kick := clampf(speed / 90.0, 0.0, 1.0)
-	cockpit_camera.fov = lerpf(78.0, 88.0, kick)
 
-	if not chase_camera.current:
-		return
-	var desired := _desired_chase_transform()
-	var weight := 1.0 - exp(-8.0 * _physics_delta())
-	chase_camera.global_transform = chase_camera.global_transform.interpolate_with(desired, weight)
-
-
-func _desired_chase_transform() -> Transform3D:
-	var car_transform := _car.global_transform
-	var offset := car_transform.basis * CHASE_OFFSET_LOCAL
-	var look_target := car_transform.origin + car_transform.basis * Vector3(0, 0.4, -6)
-	var origin := car_transform.origin + offset
-	var forward := (look_target - origin).normalized()
-	var basis := Basis(-forward.cross(Vector3.UP).normalized(), Vector3.UP, forward)
-	return Transform3D(basis, origin)
+	match _mode:
+		Mode.COCKPIT:
+			cockpit_camera.fov = lerpf(78.0, 88.0, kick)
+		Mode.T_CAM:
+			t_cam.fov = lerpf(70.0, 80.0, kick)
+		Mode.CHASE:
+			_spring(chase_camera, CHASE_OFFSET_LOCAL, CHASE_AIM_LOCAL, 12.0, delta)
+		Mode.TV:
+			_spring(tv_camera, TV_OFFSET_LOCAL, TV_AIM_LOCAL, 7.0, delta)
 
 
-func _physics_delta() -> float:
-	return 1.0 / 60.0
+func _spring(camera: Camera3D, offset: Vector3, aim: Vector3, rate: float, delta: float) -> void:
+	var desired := _follow_transform(offset, aim)
+	var weight := 1.0 - exp(-rate * delta)
+	var origin := camera.global_position.lerp(desired.origin, weight)
+	var target := _car.to_global(aim)
+	if origin.distance_squared_to(target) < 0.25:
+		origin = desired.origin
+	camera.global_transform = Transform3D(Basis.IDENTITY, origin).looking_at(target, Vector3.UP)
+
+
+func _follow_transform(offset: Vector3, aim: Vector3) -> Transform3D:
+	var origin := _car.to_global(offset)
+	return Transform3D(Basis.IDENTITY, origin).looking_at(_car.to_global(aim), Vector3.UP)
