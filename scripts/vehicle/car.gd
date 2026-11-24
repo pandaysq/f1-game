@@ -24,6 +24,14 @@ var aero_wake_df: float = 0.0
 var aero_wake_drag: float = 0.0
 var drs_active: bool = false
 
+## Last gathered input dict — audio/HUD read what the driver actually asked
+## for (nitro state lives here for touch and keyboard alike).
+var last_input: Dictionary = {}
+## Nitro boost (0.5.0): thrust while held and the tank has charge; the tank
+## drains while boosting and refills while idle. Data: vehicle.json "nitro".
+var nitro_active: bool = false
+var nitro_left: float = 0.0
+
 var data: Dictionary = {}
 var powertrain: Powertrain
 var assists_on: Dictionary = {}
@@ -56,6 +64,7 @@ var _aero: Dictionary
 var _assist_params: Dictionary
 var _steer_params: Dictionary
 var _brakes: Dictionary
+var _nitro_cfg: Dictionary
 var _mass := 750.0
 
 
@@ -68,9 +77,11 @@ func _ready() -> void:
 	_assist_params = data.get("assists", {})
 	_steer_params = data.get("steering", {})
 	_brakes = data.get("brakes", {})
+	_nitro_cfg = data.get("nitro", {})
 	_mass = float(data.get("mass_kg", 750.0))
 
 	powertrain = Powertrain.new(data)
+	nitro_left = nitro_capacity()
 	assists_on = {
 		"auto_gearbox": true,
 		"steering_assist": true,
@@ -112,6 +123,7 @@ func _physics_process(_delta: float) -> void:
 	_update_steering(input)
 	_step_wheels(input)
 	_apply_aero()
+	_apply_nitro(input)
 	_apply_assists(input)
 	_update_visual_wheels()
 
@@ -120,16 +132,20 @@ func _physics_process(_delta: float) -> void:
 
 
 func _gather_input() -> Dictionary:
+	var input: Dictionary
 	if external_input != null:
-		return external_input
-	return {
-		"throttle": Input.get_action_strength("throttle"),
-		"brake": Input.get_action_strength("brake"),
-		"steer": Input.get_axis("steer_left", "steer_right"),
-		"nitro": Input.is_action_pressed("nitro"),
-		"shift_up": Input.is_action_just_pressed("shift_up"),
-		"shift_down": Input.is_action_just_pressed("shift_down"),
-	}
+		input = external_input
+	else:
+		input = {
+			"throttle": Input.get_action_strength("throttle"),
+			"brake": Input.get_action_strength("brake"),
+			"steer": Input.get_axis("steer_left", "steer_right"),
+			"nitro": Input.is_action_pressed("nitro"),
+			"shift_up": Input.is_action_just_pressed("shift_up"),
+			"shift_down": Input.is_action_just_pressed("shift_down"),
+		}
+	last_input = input
+	return input
 
 
 func _update_steering(input: Dictionary) -> void:
@@ -178,10 +194,46 @@ func _step_wheels(input: Dictionary) -> void:
 	powertrain.update_rpm(rear_speed, throttle)
 	if bool(assists_on.get("auto_gearbox", false)):
 		powertrain.auto_shift(rear_speed, throttle, sim_time)
+
+		# TC as a rate-limited controller: target cut from slip error,
+		# slew toward it; no static on/off threshold hunting
+
+		# positive steer = wheels point RIGHT (input axis convention: D = +1);
+		# a +Y rotation turns -Z toward -X (left), hence the minus sign
+
+		# tire forces act at the CONTACT PATCH: full ray distance from the
+		# attach point, INCLUDING the wheel radius. Phase-1 bug: the radius was
+		# missing, so fx/fy applied 0.33 m high — lateral force above the CG
+		# jacked the body into the turn and unloaded the outside wheels
+		# (diagonal load flapping on any real cornering).
 	elif bool(input.get("shift_up", false)):
 		powertrain.request_shift(1, sim_time)
+
+		# TC as a rate-limited controller: target cut from slip error,
+		# slew toward it; no static on/off threshold hunting
+
+		# positive steer = wheels point RIGHT (input axis convention: D = +1);
+		# a +Y rotation turns -Z toward -X (left), hence the minus sign
+
+		# tire forces act at the CONTACT PATCH: full ray distance from the
+		# attach point, INCLUDING the wheel radius. Phase-1 bug: the radius was
+		# missing, so fx/fy applied 0.33 m high — lateral force above the CG
+		# jacked the body into the turn and unloaded the outside wheels
+		# (diagonal load flapping on any real cornering).
 	elif bool(input.get("shift_down", false)):
 		powertrain.request_shift(-1, sim_time)
+
+		# TC as a rate-limited controller: target cut from slip error,
+		# slew toward it; no static on/off threshold hunting
+
+		# positive steer = wheels point RIGHT (input axis convention: D = +1);
+		# a +Y rotation turns -Z toward -X (left), hence the minus sign
+
+		# tire forces act at the CONTACT PATCH: full ray distance from the
+		# attach point, INCLUDING the wheel radius. Phase-1 bug: the radius was
+		# missing, so fx/fy applied 0.33 m high — lateral force above the CG
+		# jacked the body into the turn and unloaded the outside wheels
+		# (diagonal load flapping on any real cornering).
 	var drive_torque := powertrain.wheel_torque(sim_time, throttle)
 	if bool(assists_on.get("traction_control", false)):
 		# TC as a rate-limited controller: target cut from slip error,
@@ -195,9 +247,27 @@ func _step_wheels(input: Dictionary) -> void:
 		var slew := float(_assist_params.get("tc_slew_per_s", 8.0))
 		_tc_cut = move_toward(_tc_cut, target_cut, slew * TICK_DT)
 		drive_torque *= 1.0 - _tc_cut
+
+		# positive steer = wheels point RIGHT (input axis convention: D = +1);
+		# a +Y rotation turns -Z toward -X (left), hence the minus sign
+
+		# tire forces act at the CONTACT PATCH: full ray distance from the
+		# attach point, INCLUDING the wheel radius. Phase-1 bug: the radius was
+		# missing, so fx/fy applied 0.33 m high — lateral force above the CG
+		# jacked the body into the turn and unloaded the outside wheels
+		# (diagonal load flapping on any real cornering).
 	var compressions: Array[float] = [0.0, 0.0, 0.0, 0.0]
 	for i in range(4):
 		compressions[i] = _raycast_compression(i, rest_length, wheel_radius, space)
+
+		# positive steer = wheels point RIGHT (input axis convention: D = +1);
+		# a +Y rotation turns -Z toward -X (left), hence the minus sign
+
+		# tire forces act at the CONTACT PATCH: full ray distance from the
+		# attach point, INCLUDING the wheel radius. Phase-1 bug: the radius was
+		# missing, so fx/fy applied 0.33 m high — lateral force above the CG
+		# jacked the body into the turn and unloaded the outside wheels
+		# (diagonal load flapping on any real cornering).
 	for i in range(4):
 		var attach_global := to_global(_wheel_local_pos[i])
 		var up := global_transform.basis.y
@@ -208,6 +278,15 @@ func _step_wheels(input: Dictionary) -> void:
 			wheel_loads[i] = 0.0
 			wheel_spin[i] *= 0.999
 			continue
+
+			# positive steer = wheels point RIGHT (input axis convention: D = +1);
+			# a +Y rotation turns -Z toward -X (left), hence the minus sign
+
+			# tire forces act at the CONTACT PATCH: full ray distance from the
+			# attach point, INCLUDING the wheel radius. Phase-1 bug: the radius was
+			# missing, so fx/fy applied 0.33 m high — lateral force above the CG
+			# jacked the body into the turn and unloaded the outside wheels
+			# (diagonal load flapping on any real cornering).
 		var compression_rate := _compression_rate(i)
 		var spring_force := spring_rate * compression + damper * compression_rate
 		spring_force = maxf(spring_force, 0.0)
@@ -319,6 +398,47 @@ func _surface_grip(contact: Vector3) -> float:
 	return 1.0
 
 
+# ---------------------------------------------------------------- nitro
+
+
+## Full tank in seconds of boost (from vehicle.json "nitro").
+func nitro_capacity() -> float:
+	return float(_nitro_cfg.get("capacity_s", 3.0))
+
+
+## Tank charge fraction 0..1 (HUD gauge / nitro pitch read it).
+func nitro_frac() -> float:
+	return clampf(nitro_left / maxf(nitro_capacity(), 0.001), 0.0, 1.0)
+
+
+## Pure tank step (unit-testable): drain while boosting, refill while idle.
+static func nitro_tank_step(left: float, active: bool, delta: float, cfg: Dictionary) -> float:
+	var capacity := float(cfg.get("capacity_s", 3.0))
+	if capacity <= 0.0:
+		return 0.0
+	if active:
+		return maxf(left - delta, 0.0)
+	return minf(left + float(cfg.get("regen_per_s", 0.4)) * delta, capacity)
+
+
+## Boost thrust while nitro is held and the tank has charge. AI cars never
+## request nitro, so this is a pure player tool (and the RaceAudio nitro
+## loop keys off nitro_active).
+func _apply_nitro(input: Dictionary) -> void:
+	var capacity := nitro_capacity()
+	if capacity <= 0.0:
+		nitro_active = false
+		return
+	var speed := linear_velocity.length()
+	var pressed := bool(input.get("nitro", false))
+	nitro_active = (
+		pressed and nitro_left > 0.0 and speed >= float(_nitro_cfg.get("min_speed_mps", 2.0))
+	)
+	nitro_left = nitro_tank_step(nitro_left, nitro_active, TICK_DT, _nitro_cfg)
+	if nitro_active:
+		apply_central_force(-global_transform.basis.z * float(_nitro_cfg.get("thrust_n", 3600.0)))
+
+
 # ---------------------------------------------------------------- aero
 
 
@@ -327,12 +447,26 @@ func _apply_aero() -> void:
 	var speed := velocity.length()
 	if speed < 0.1:
 		return
+
+		# slipstream (long-range wake) cuts drag; an open DRS flap adds to it
+
+		# wing balance: per-axle downforce applied at the wheel attach points.
+		# Dirty air hits the front wing first (front loss >= rear -> understeer,
+		# which is stability-friendly); an open DRS flap sheds rear downforce.
+
+		# local axle offsets from the body origin (wheel attach plane)
 	var wake: Dictionary = _aero.get("wake", {})
 	var drs: Dictionary = _aero.get("drs", {})
 	# slipstream (long-range wake) cuts drag; an open DRS flap adds to it
 	var drag_mult := 1.0 - clampf(aero_wake_drag, 0.0, 1.0) * float(wake.get("drag_cut_max", 0.45))
 	if drs_active:
 		drag_mult *= 1.0 - float(drs.get("drag_cut", 0.28))
+
+		# wing balance: per-axle downforce applied at the wheel attach points.
+		# Dirty air hits the front wing first (front loss >= rear -> understeer,
+		# which is stability-friendly); an open DRS flap sheds rear downforce.
+
+		# local axle offsets from the body origin (wheel attach plane)
 	var drag_force := float(_aero.get("drag_coeff", 0.48)) * drag_mult * speed * speed
 	apply_central_force(-velocity.normalized() * drag_force)
 	# wing balance: per-axle downforce applied at the wheel attach points.
@@ -345,6 +479,8 @@ func _apply_aero() -> void:
 	if drs_active:
 		front_cf *= 1.0 - float(drs.get("front_df_cut", 0.0))
 		rear_cf *= 1.0 - float(drs.get("rear_df_cut", 0.24))
+
+		# local axle offsets from the body origin (wheel attach plane)
 	var q := speed * speed
 	# local axle offsets from the body origin (wheel attach plane)
 	var front_offset := (
@@ -383,7 +519,6 @@ func _update_visual_wheels() -> void:
 	var container := get_node_or_null("Visuals")
 	if container == null:
 		return
-
 	var rest_length := float(_susp.get("rest_length_m", 0.25))
 	for i in range(4):
 		var holder := container.get_node_or_null("WheelHolder%d" % i) as Node3D
@@ -425,6 +560,8 @@ func reset_to(transform: Transform3D) -> void:
 	steering_angle = 0.0
 	sim_time = 0.0
 	powertrain.reset()
+	nitro_left = nitro_capacity()
+	nitro_active = false
 	for i in range(4):
 		wheel_spin[i] = 0.0
 		_slip_lon_state[i] = 0.0

@@ -34,10 +34,12 @@ var camera_rig: CameraRig
 var hud: Hud
 var race_hud: RaceHud
 var pause_menu: PauseMenu
+var race_audio: RaceAudio
 
 var _mode := "race"
 var _countdown_left := 0.0
 var _countdown_total := 3.0
+var _lights_shown := 0
 var _race_over := false
 
 # Dev screenshot hook: APEX_SHOT_DIR=<dir> APEX_SHOT_PLAN="2.0:cockpit,5.0:chase,8.0:top"
@@ -60,34 +62,23 @@ func _ready() -> void:
 	var mode := OS.get_environment("APEX_MODE")
 	if mode.is_empty():
 		mode = Settings.launch_mode
-
-		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	if mode == "tt":
 		_mode = "tt"
-
-		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	var text := FileAccess.get_file_as_string(TRACK_PATH)
 	track = TrackData.parse(text, TRACK_PATH)
 	if track == null:
 		push_error("main: cannot parse track %s" % TRACK_PATH)
 		return
-
-		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	var problems := TrackValidator.validate(track)
 	if not problems.is_empty():
 		push_error("main: track validation failed: %s" % str(problems))
-
-		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	TrackBuilder.build(track, self)
 	_add_environment()
 
 	if _mode == "tt":
 		_setup_time_trial()
-
-		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	else:
 		_setup_race()
-		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	debug_overlay.visible = OS.get_environment("APEX_DEBUG") == "1"
 	_init_screenshot_hook()
 	if not OS.get_environment("APEX_TRACE").is_empty():
@@ -193,9 +184,12 @@ func _setup_race() -> void:
 	pause_menu = PauseMenu.new()
 	add_child(pause_menu)
 	touch.pause_pressed.connect(func() -> void: pause_menu.toggle())
+	race_audio = RaceAudio.new(cars[0])
+	add_child(race_audio)
 
 	_countdown_total = float(config.get("start", {}).get("countdown_s", 3.0))
 	_countdown_left = _countdown_total
+	_lights_shown = 0
 	race_hud.start_lights.show_lights(0)
 	race_hud.show_message("GET READY")
 
@@ -216,6 +210,8 @@ func _setup_time_trial() -> void:
 	pause_menu = PauseMenu.new()
 	add_child(pause_menu)
 	touch.pause_pressed.connect(func() -> void: pause_menu.toggle())
+	race_audio = RaceAudio.new(car)
+	add_child(race_audio)
 
 
 func _physics_process(delta: float) -> void:
@@ -231,26 +227,23 @@ func _update_race(delta: float) -> void:
 		return
 
 		# player input is blocked until the green flag (jump start = no go
-		# penalty model yet, phase 7 rules)
-
-		# AI DRS is handled by AiDriver._physics_process
-
-		# AI DRS is handled by AiDriver._physics_process
-
-		# AI DRS is handled by AiDriver._physics_process
-
-		# AI DRS is handled by AiDriver._physics_process
+		# penalty model yet, phase 7 rules); AI DRS is handled by AiDriver
 	if not session.started and not _race_over:
 		_countdown_left -= delta
 		var step := _countdown_total / 5.0
 		var elapsed := _countdown_total - _countdown_left
-		race_hud.start_lights.show_lights(clampi(1 + int(elapsed / step), 0, 5))
+		var lights := clampi(1 + int(elapsed / step), 0, 5)
+		if lights != _lights_shown:
+			_lights_shown = lights
+			Sfx.start_light()
+		race_hud.start_lights.show_lights(lights)
 		if _countdown_left <= 0.0:
 			session.start_race()
 			for driver in drivers:
 				driver.frozen = false
 			cars[0].external_input = null
 			race_hud.start_lights.lights_out()
+			Sfx.lights_out()
 			race_hud.show_message("GO!")
 		else:
 			race_hud.show_message(str(ceil(_countdown_left)))
@@ -262,12 +255,6 @@ func _update_race(delta: float) -> void:
 				"shift_up": false,
 				"shift_down": false,
 			}
-
-		# AI DRS is handled by AiDriver._physics_process
-
-		# AI DRS is handled by AiDriver._physics_process
-
-		# AI DRS is handled by AiDriver._physics_process
 	var states: Array = []
 	for car in cars:
 		(
@@ -280,10 +267,6 @@ func _update_race(delta: float) -> void:
 				}
 			)
 		)
-
-		# AI DRS is handled by AiDriver._physics_process
-
-		# AI DRS is handled by AiDriver._physics_process
 	session.update(states, TICK_DT)
 
 	for i in range(cars.size()):
@@ -291,9 +274,9 @@ func _update_race(delta: float) -> void:
 		cars[i].aero_wake_drag = session.wake_drag(i)
 		if i == 0:
 			_update_player_drs()
-			# AI DRS is handled by AiDriver._physics_process
 	if not _race_over and not session.classification.is_empty():
 		_race_over = true
+		Sfx.finish()
 		race_hud.show_results(session.classification)
 
 
@@ -310,6 +293,7 @@ func _on_ai_reset(driver: AiDriver) -> void:
 
 
 func _on_camera_mode_changed(label: String) -> void:
+	Sfx.select()
 	if race_hud != null:
 		race_hud.show_message("CAMERA: " + label)
 
@@ -394,27 +378,13 @@ func _init_screenshot_hook() -> void:
 
 		# visual QA: drive the player car with a real AI driver so shots
 		# show actual racing (not a blind full-throttle crash)
-
-		# visual QA: drive the player car with a real AI driver so shots
-		# show actual racing (not a blind full-throttle crash)
-
-		# visual QA: drive the player car with a real AI driver so shots
-		# show actual racing (not a blind full-throttle crash)
 	var plan := OS.get_environment("APEX_SHOT_PLAN")
 	for entry in plan.split(","):
 		var parts := entry.split(":")
 		if parts.size() == 2 and parts[0].is_valid_float():
 			_shot_plan.append([parts[0].to_float(), parts[1]])
-
-			# visual QA: drive the player car with a real AI driver so shots
-			# show actual racing (not a blind full-throttle crash)
-
-		# visual QA: drive the player car with a real AI driver so shots
-		# show actual racing (not a blind full-throttle crash)
 	_shot_plan.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
 	if OS.get_environment("APEX_DRIVE") != "" and not cars.is_empty():
-		# visual QA: drive the player car with a real AI driver so shots
-		# show actual racing (not a blind full-throttle crash)
 		var vehicle: Dictionary = JSON.parse_string(
 			FileAccess.get_file_as_string("res://assets/data/vehicle.json")
 		)

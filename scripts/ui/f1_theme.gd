@@ -45,6 +45,7 @@ static func panel_style(bg: Color = PANEL_BG, edge: Color = RED) -> StyleBoxFlat
 
 
 ## F1-style menu button: skewed dark slab, red left edge; hover = red fill.
+## Every button clicks (Sfx) — one hook covers menu, settings and pause.
 static func button(
 	text: String, font_size: int = 32, min_size: Vector2 = Vector2(380, 62)
 ) -> Button:
@@ -69,6 +70,7 @@ static func button(
 	b.add_theme_stylebox_override("pressed", pressed)
 	var disabled := panel_style(Color(1, 1, 1, 0.05), Color(1, 1, 1, 0.22))
 	b.add_theme_stylebox_override("disabled", disabled)
+	b.pressed.connect(func() -> void: Sfx.click())
 	return b
 
 

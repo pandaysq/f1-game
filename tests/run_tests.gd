@@ -8,6 +8,7 @@ extends SceneTree
 
 const PhysicsDriverScript := preload("res://tests/physics_driver.gd")
 const Phase2DriverScript := preload("res://tests/phase2_driver.gd")
+const AudioChecksScript := preload("res://tests/audio_checks.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -34,6 +35,7 @@ var _driver: Node = null
 func _initialize() -> void:
 	print("== Apex GP test suite ==")
 	_test_config()
+	_test_audio()
 	_test_track_validator()
 	_test_vehicle_visuals()
 	_test_time_trial_logic()
@@ -103,6 +105,13 @@ func _test_config() -> void:
 	settings_node.quality = original_quality
 	settings_node.assists = original_assists
 	settings_node.save_settings()
+
+
+# ----------------------------------------------------------- audio tests
+
+
+func _test_audio() -> void:
+	AudioChecksScript.run(_check, root)
 
 
 # -------------------------------------------------------- validator tests

@@ -77,6 +77,12 @@
     "upshift_rpm_fraction": 0.94,
     "downshift_rpm_fraction": 0.45
   },
+  "nitro": {
+    "thrust_n": 3600.0,
+    "capacity_s": 3.5,
+    "regen_per_s": 0.4,
+    "min_speed_mps": 2.0
+  },
   "brakes": {
     "max_torque_nm": 4000.0,
     "bias_front": 0.58

@@ -89,6 +89,7 @@ func _assist_row(key: String) -> PanelContainer:
 	check.focus_mode = Control.FOCUS_NONE
 	check.toggled.connect(
 		func(on: bool) -> void:
+			Sfx.toggle()
 			Settings.assists[key] = on
 			Settings.save_settings()
 			if _on_changed.is_valid():

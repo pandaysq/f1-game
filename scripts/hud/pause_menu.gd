@@ -69,12 +69,14 @@ func _open() -> void:
 	get_tree().paused = true
 	_root.visible = true
 	visible = true
+	Sfx.open()
 
 
 func _close() -> void:
 	get_tree().paused = false
 	_root.visible = false
 	visible = false
+	Sfx.close()
 
 
 func _restart() -> void:
