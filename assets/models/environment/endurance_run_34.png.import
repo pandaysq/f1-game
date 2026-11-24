@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://da7s6t1khl7qj"
-path="res://.godot/imported/endurance_run_34.png-d4cd387fcd819f2163c59c22837aa2cb.ctex"
+path.s3tc="res://.godot/imported/endurance_run_34.png-d4cd387fcd819f2163c59c22837aa2cb.s3tc.ctex"
+path.etc2="res://.godot/imported/endurance_run_34.png-d4cd387fcd819f2163c59c22837aa2cb.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "cef0330d709b76628e8e15f819d55bfe"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/environment/endurance_run_34.png"
-dest_files=["res://.godot/imported/endurance_run_34.png-d4cd387fcd819f2163c59c22837aa2cb.ctex"]
+dest_files=["res://.godot/imported/endurance_run_34.png-d4cd387fcd819f2163c59c22837aa2cb.s3tc.ctex", "res://.godot/imported/endurance_run_34.png-d4cd387fcd819f2163c59c22837aa2cb.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +42,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
