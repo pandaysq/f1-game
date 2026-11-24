@@ -325,13 +325,15 @@ func _print_trace() -> void:
 			break
 	if player_driver != null:
 		print(
-			"[trace] driver idx=%d target=%.1f steer=%.2f input=%s"
-			% [
-				player_driver._index,
-				player_driver.profile.at(player_driver._index),
-				player_driver._steer_cmd,
-				str(cars[0].external_input),
-			]
+			(
+				"[trace] driver idx=%d target=%.1f steer=%.2f input=%s"
+				% [
+					player_driver._index,
+					player_driver.profile.at(player_driver._index),
+					player_driver._steer_cmd,
+					str(cars[0].external_input),
+				]
+			)
 		)
 	var parts: Array[String] = []
 	for i in range(cars.size()):
@@ -344,18 +346,25 @@ func _print_trace() -> void:
 			if d < best_d:
 				best_d = d
 				best_i = j
-		parts.append(
-			"%d:%s v=%.1f idx=%d off=%.1f y=%.2f"
-			% [
-				i,
-				"P" if i == 0 else "AI",
-				car.linear_velocity.length() * 3.6,
-				best_i,
-				sqrt(best_d),
-				pos.y,
-			]
+		(
+			parts
+			. append(
+				(
+					"%d:%s v=%.1f idx=%d off=%.1f y=%.2f"
+					% [
+						i,
+						"P" if i == 0 else "AI",
+						car.linear_velocity.length() * 3.6,
+						best_i,
+						sqrt(best_d),
+						pos.y,
+					]
+				)
+			)
 		)
-	print("[trace] t=%.1f started=%s %s" % [_trace_elapsed, str(session.started), " | ".join(parts)])
+	print(
+		"[trace] t=%.1f started=%s %s" % [_trace_elapsed, str(session.started), " | ".join(parts)]
+	)
 
 
 ## Runs one scripted lap segment for screenshot/CI visual checks.
