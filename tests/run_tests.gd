@@ -53,7 +53,7 @@ func _test_config() -> void:
 	var ticks: Variant = ProjectSettings.get_setting("physics/common/physics_ticks_per_second", 0)
 	_check(ticks == 120, "physics tick rate is 120 Hz")
 	var main_scene: Variant = ProjectSettings.get_setting("application/run/main_scene", "")
-	_check(main_scene == "res://scenes/main.tscn", "main scene is configured")
+	_check(main_scene == "res://scenes/menu.tscn", "entry scene is the main menu")
 	var features: PackedStringArray = ProjectSettings.get_setting(
 		"application/config/features", PackedStringArray()
 	)
@@ -70,6 +70,8 @@ func _test_config() -> void:
 		"reset_car",
 		"toggle_camera",
 		"toggle_debug",
+		"drs",
+		"pause_game",
 	]
 	for action in required:
 		var defined: bool = InputMap.has_action(action)
@@ -79,6 +81,28 @@ func _test_config() -> void:
 			_check(not events.is_empty(), "action '%s' has events" % action)
 	var settings_path: Variant = ProjectSettings.get_setting("autoload/Settings", "")
 	_check(settings_path == "*res://scripts/settings.gd", "Settings autoload is registered")
+
+	# explicit mobile rendering method: default Forward+ falls back to
+	# software Vulkan (lavapipe, ~15 FPS) on machines without real drivers
+	var renderer: Variant = ProjectSettings.get_setting("rendering/renderer/rendering_method", "")
+	_check(renderer == "mobile", "explicit mobile rendering method (no software fallback)")
+
+	# settings persistence round-trip (0.4.0): the autoload is a runtime
+	# node, compile-time identifier is unavailable in a SceneTree script
+	var settings_node: Node = root.get_node("Settings")
+	var original_quality: String = settings_node.quality
+	var original_assists: Dictionary = settings_node.assists.duplicate()
+	settings_node.quality = "low"
+	settings_node.assists["racing_line"] = true
+	settings_node.save_settings()
+	settings_node.quality = "high"
+	settings_node.assists["racing_line"] = false
+	settings_node.load_settings()
+	_check(settings_node.quality == "low", "settings round-trip keeps quality")
+	_check(bool(settings_node.assists["racing_line"]), "settings round-trip keeps assists")
+	settings_node.quality = original_quality
+	settings_node.assists = original_assists
+	settings_node.save_settings()
 
 
 # -------------------------------------------------------- validator tests

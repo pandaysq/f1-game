@@ -1,15 +1,22 @@
 extends CanvasLayer
 ## Debug overlay (F3): FPS, physics tick rate, basic engine stats.
-## Expanded in later phases with wheel slip, aero values, network stats.
+## Hidden by default (APEX_DEBUG=1 to show); expanded in later phases with
+## wheel slip, aero values, network stats.
+
+var label: Label
 
 var _frames: int = 0
 var _elapsed: float = 0.0
 var _fps: int = 0
 
-@onready var label: Label = $Label
-
 
 func _ready() -> void:
+	label = Label.new()
+	label.position = Vector2(16, 16)
+	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	label.add_theme_constant_override("outline_size", 4)
+	add_child(label)
 	_refresh()
 
 

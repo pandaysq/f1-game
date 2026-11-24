@@ -33,6 +33,7 @@ var tt_session: TimeTrial
 var camera_rig: CameraRig
 var hud: Hud
 var race_hud: RaceHud
+var pause_menu: PauseMenu
 
 var _mode := "race"
 var _countdown_left := 0.0
@@ -55,25 +56,39 @@ var _trace_elapsed := 0.0
 
 
 func _ready() -> void:
+	Settings.apply_quality()
 	var mode := OS.get_environment("APEX_MODE")
+	if mode.is_empty():
+		mode = Settings.launch_mode
+
+		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	if mode == "tt":
 		_mode = "tt"
+
+		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	var text := FileAccess.get_file_as_string(TRACK_PATH)
 	track = TrackData.parse(text, TRACK_PATH)
 	if track == null:
 		push_error("main: cannot parse track %s" % TRACK_PATH)
 		return
+
+		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	var problems := TrackValidator.validate(track)
 	if not problems.is_empty():
 		push_error("main: track validation failed: %s" % str(problems))
+
+		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	TrackBuilder.build(track, self)
 	_add_environment()
 
 	if _mode == "tt":
 		_setup_time_trial()
+
+		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
 	else:
 		_setup_race()
-	debug_overlay.visible = true
+		# debug overlay is dev-only: hidden unless APEX_DEBUG=1 (F3 toggles)
+	debug_overlay.visible = OS.get_environment("APEX_DEBUG") == "1"
 	_init_screenshot_hook()
 	if not OS.get_environment("APEX_TRACE").is_empty():
 		_trace_left = maxf(OS.get_environment("APEX_TRACE").to_float(), 1.0)
@@ -173,10 +188,15 @@ func _setup_race() -> void:
 
 	race_hud = RaceHud.new(cars[0], session, 0)
 	add_child(race_hud)
-	add_child(TouchControls.new())
+	var touch := TouchControls.new()
+	add_child(touch)
+	pause_menu = PauseMenu.new()
+	add_child(pause_menu)
+	touch.pause_pressed.connect(func() -> void: pause_menu.toggle())
 
 	_countdown_total = float(config.get("start", {}).get("countdown_s", 3.0))
 	_countdown_left = _countdown_total
+	race_hud.start_lights.show_lights(0)
 	race_hud.show_message("GET READY")
 
 
@@ -191,7 +211,11 @@ func _setup_time_trial() -> void:
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 	hud = Hud.new(car, tt_session)
 	add_child(hud)
-	add_child(TouchControls.new())
+	var touch := TouchControls.new()
+	add_child(touch)
+	pause_menu = PauseMenu.new()
+	add_child(pause_menu)
+	touch.pause_pressed.connect(func() -> void: pause_menu.toggle())
 
 
 func _physics_process(delta: float) -> void:
@@ -210,24 +234,26 @@ func _update_race(delta: float) -> void:
 		# penalty model yet, phase 7 rules)
 
 		# AI DRS is handled by AiDriver._physics_process
+
+		# AI DRS is handled by AiDriver._physics_process
+
+		# AI DRS is handled by AiDriver._physics_process
+
+		# AI DRS is handled by AiDriver._physics_process
 	if not session.started and not _race_over:
 		_countdown_left -= delta
+		var step := _countdown_total / 5.0
+		var elapsed := _countdown_total - _countdown_left
+		race_hud.start_lights.show_lights(clampi(1 + int(elapsed / step), 0, 5))
 		if _countdown_left <= 0.0:
 			session.start_race()
 			for driver in drivers:
 				driver.frozen = false
-
-				# player input is blocked until the green flag (jump start = no go
-				# penalty model yet, phase 7 rules)
 			cars[0].external_input = null
+			race_hud.start_lights.lights_out()
 			race_hud.show_message("GO!")
-
-			# player input is blocked until the green flag (jump start = no go
-			# penalty model yet, phase 7 rules)
 		else:
 			race_hud.show_message(str(ceil(_countdown_left)))
-			# player input is blocked until the green flag (jump start = no go
-			# penalty model yet, phase 7 rules)
 			cars[0].external_input = {
 				"throttle": 0.0,
 				"brake": 1.0,
@@ -236,6 +262,10 @@ func _update_race(delta: float) -> void:
 				"shift_up": false,
 				"shift_down": false,
 			}
+
+		# AI DRS is handled by AiDriver._physics_process
+
+		# AI DRS is handled by AiDriver._physics_process
 
 		# AI DRS is handled by AiDriver._physics_process
 	var states: Array = []
@@ -252,6 +282,8 @@ func _update_race(delta: float) -> void:
 		)
 
 		# AI DRS is handled by AiDriver._physics_process
+
+		# AI DRS is handled by AiDriver._physics_process
 	session.update(states, TICK_DT)
 
 	for i in range(cars.size()):
@@ -262,20 +294,7 @@ func _update_race(delta: float) -> void:
 			# AI DRS is handled by AiDriver._physics_process
 	if not _race_over and not session.classification.is_empty():
 		_race_over = true
-		var results := "\n".join(session.classification.map(_classification_line))
-		race_hud.show_message("FINISH!\n" + results)
-
-
-func _classification_line(entry: Dictionary) -> String:
-	return (
-		"P%d  %s  L%d  best %s"
-		% [
-			entry["position"],
-			"YOU" if entry["car_index"] == 0 else "AI%d" % entry["car_index"],
-			entry["laps"],
-			_format_lap(entry["best_lap"]),
-		]
-	)
+		race_hud.show_results(session.classification)
 
 
 func _update_player_drs() -> void:
@@ -375,11 +394,20 @@ func _init_screenshot_hook() -> void:
 
 		# visual QA: drive the player car with a real AI driver so shots
 		# show actual racing (not a blind full-throttle crash)
+
+		# visual QA: drive the player car with a real AI driver so shots
+		# show actual racing (not a blind full-throttle crash)
+
+		# visual QA: drive the player car with a real AI driver so shots
+		# show actual racing (not a blind full-throttle crash)
 	var plan := OS.get_environment("APEX_SHOT_PLAN")
 	for entry in plan.split(","):
 		var parts := entry.split(":")
 		if parts.size() == 2 and parts[0].is_valid_float():
 			_shot_plan.append([parts[0].to_float(), parts[1]])
+
+			# visual QA: drive the player car with a real AI driver so shots
+			# show actual racing (not a blind full-throttle crash)
 
 		# visual QA: drive the player car with a real AI driver so shots
 		# show actual racing (not a blind full-throttle crash)
@@ -434,21 +462,14 @@ func _capture_shot(mode: String) -> void:
 		get_tree().quit()
 
 
-func _format_lap(seconds: float) -> String:
-	if seconds < 0.0:
-		return "--:--.---"
-	var minutes := int(seconds) / 60
-	var rest := seconds - float(minutes * 60)
-	return "%02d:%06.3f" % [minutes, rest]
-
-
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("reset_car"):
 		_reset_car()
+
+		# pause (ui_cancel / pause_game) is owned by PauseMenu
 	elif event.is_action_pressed("toggle_debug"):
 		debug_overlay.visible = not debug_overlay.visible
-	elif event.is_action_pressed("ui_cancel"):
-		get_tree().quit()
+		# pause (ui_cancel / pause_game) is owned by PauseMenu
 
 
 ## Reset the player car to the nearest centerline point, facing along the track.
