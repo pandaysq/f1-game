@@ -82,3 +82,63 @@ static func tag(text: String, color: Color = YELLOW) -> Label:
 	l.add_theme_font_size_override("font_size", 18)
 	l.add_theme_color_override("font_color", color)
 	return l
+
+
+## Volume slider row wired to Settings.volumes (0.6.0). Used by the main
+## settings screen and the pause menu alike. Saves + reroutes buses on drag end.
+static func volume_row(key: String, slider_width: int = 360) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	var l := Label.new()
+	l.text = key.to_upper()
+	l.add_theme_font_override("font", font("semibold"))
+	l.add_theme_font_size_override("font_size", 20)
+	l.add_theme_color_override("font_color", Color.WHITE)
+	row.add_child(l)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 1.0
+	slider.step = 0.05
+	slider.value = float(Settings.volumes.get(key, 1.0))
+	slider.custom_minimum_size = Vector2(slider_width, 36)
+	slider.focus_mode = Control.FOCUS_NONE
+	slider.drag_ended.connect(
+		func(changed: bool) -> void:
+			if not changed:
+				return
+			Settings.volumes[key] = slider.value
+			Settings.save_settings()
+			Settings.apply_volumes()
+			Sfx.toggle()
+	)
+	row.add_child(slider)
+	return row
+
+
+## Haptics toggle row wired to Settings.vibration (0.6.0).
+static func vibration_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	var l := Label.new()
+	l.text = "VIBRATION"
+	l.add_theme_font_override("font", font("semibold"))
+	l.add_theme_font_size_override("font_size", 20)
+	l.add_theme_color_override("font_color", Color.WHITE)
+	row.add_child(l)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+	var check := CheckButton.new()
+	check.button_pressed = Settings.vibration
+	check.focus_mode = Control.FOCUS_NONE
+	check.toggled.connect(
+		func(on: bool) -> void:
+			Sfx.toggle()
+			Settings.vibration = on
+			Settings.save_settings()
+	)
+	row.add_child(check)
+	return row

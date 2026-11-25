@@ -22,9 +22,16 @@ func _init(on_changed: Callable) -> void:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
+	# the panel grew (audio + haptics in 0.6.0): scroll when it exceeds the screen
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(660, 600)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	center.add_child(scroll)
+
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
-	center.add_child(box)
+	box.custom_minimum_size = Vector2(640, 0)
+	scroll.add_child(box)
 
 	var title := Label.new()
 	title.text = "SETTINGS"
@@ -39,6 +46,11 @@ func _init(on_changed: Callable) -> void:
 	box.add_child(_spacer(4))
 	box.add_child(_section("GRAPHICS QUALITY"))
 	box.add_child(_quality_row())
+	box.add_child(_spacer(4))
+	box.add_child(_section("AUDIO"))
+	for key in ["master", "music", "sfx"]:
+		box.add_child(F1Theme.volume_row(key, 320))
+	box.add_child(F1Theme.vibration_row())
 
 	box.add_child(_spacer(8))
 	var back := F1Theme.button("BACK  [ESC]", 24, Vector2(220, 44))

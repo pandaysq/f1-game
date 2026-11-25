@@ -33,15 +33,18 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		p.stream = load("res://assets/audio/engine/engine_%d.wav" % i)
 		p.volume_db = SILENT_DB
+		p.bus = "SFX"
 		add_child(p)
 		_engine_players.append(p)
 	_skid_player = AudioStreamPlayer.new()
 	_skid_player.stream = load("res://assets/audio/tires/skid_loop.wav")
 	_skid_player.volume_db = SILENT_DB
+	_skid_player.bus = "SFX"
 	add_child(_skid_player)
 	_nitro_player = AudioStreamPlayer.new()
 	_nitro_player.stream = load("res://assets/audio/nitro/nitro_loop.wav")
 	_nitro_player.volume_db = SILENT_DB
+	_nitro_player.bus = "SFX"
 	add_child(_nitro_player)
 	for p in _engine_players:
 		p.play()

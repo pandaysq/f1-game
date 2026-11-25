@@ -19,6 +19,8 @@ var _gear_label: Label
 var _message_label: Label
 var _standings_label: Label
 var _results_root: Control
+var _minimap: MiniMap
+var _cars: Array = []
 
 
 func _init(car: Car, session: RaceSession, car_index: int) -> void:
@@ -64,17 +66,16 @@ func _init(car: Car, session: RaceSession, car_index: int) -> void:
 	_gear_label.text = "N"
 	unit_box.add_child(_gear_label)
 
-	# top-right: live standings
+	# top-right: track map (0.6.0), standings moved under the tower
 	var standings := PanelContainer.new()
 	standings.add_theme_stylebox_override(
 		"panel", F1Theme.panel_style(F1Theme.PANEL_BG, Color(1, 1, 1, 0.35))
 	)
-	standings.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	standings.position = Vector2(-254, 86)
+	standings.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	standings.position = Vector2(24, 178)
 	add_child(standings)
 	_standings_label = _styled_label(16, "semibold", Color.WHITE)
 	standings.add_child(_standings_label)
-
 	_message_label = _label_center_top(248, 52)
 	start_lights = StartLights.new()
 	start_lights.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
@@ -105,6 +106,20 @@ func _process(_delta: float) -> void:
 		_drs_label.text = "DRS"
 		_drs_label.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
 	_standings_label.text = _standings_text()
+	if _minimap != null:
+		var positions: Array[Vector3] = []
+		for c in _cars:
+			positions.append((c as Car).global_transform.origin)
+		_minimap.update_positions(positions)
+
+
+## Track map widget (0.6.0): built by the main scene once the track is known.
+func attach_minimap(track: TrackData, cars: Array) -> void:
+	_cars = cars
+	_minimap = MiniMap.new(track.points)
+	_minimap.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_minimap.position = Vector2(-262, 86)
+	add_child(_minimap)
 
 
 func show_message(message: String) -> void:
@@ -112,6 +127,16 @@ func show_message(message: String) -> void:
 	_message_label.modulate = Color(1.0, 0.9, 0.2)
 	var tween := create_tween()
 	tween.tween_property(_message_label, "modulate", Color.WHITE, 2.0)
+
+
+## Track-limits feedback (0.6.0): "TRACK LIMITS 1/3" flashes, third cut
+## announces the deleted lap.
+func show_track_limits(count: int, invalidated: bool = false) -> void:
+	if invalidated:
+		show_message("TRACK LIMITS  ///  LAP DELETED")
+		_message_label.modulate = Color(1.0, 0.25, 0.1)
+	else:
+		show_message("TRACK LIMITS %d/%d" % [count, TrackLimits.LIMITS_PER_LAP])
 
 
 ## F1-style classification screen after the finish.

@@ -2,9 +2,12 @@ class_name Hud
 extends CanvasLayer
 ## Time Trial HUD: speed, gear, lap counter, current/last/best lap, sectors.
 ## Big labels bottom corners so thumbs don't cover them on phones.
+## 0.6.0: track map widget + INVALID marker on lap-deleted laps.
 
 var _car: Car
 var _session: TimeTrial
+var _track_limits: TrackLimits
+var _minimap: MiniMap
 
 var _speed_label: Label
 var _gear_label: Label
@@ -80,10 +83,37 @@ func _process(_delta: float) -> void:
 	var speed_kmh := _car.linear_velocity.length() * 3.6
 	_speed_label.text = "%d km/h" % int(speed_kmh)
 	_gear_label.text = "R" if _car.powertrain.gear == 0 else str(_car.powertrain.gear)
-	_time_label.text = _session.format_time(_session.current_lap_time)
+	var lap_time_text := _session.format_time(_session.current_lap_time)
+	if _track_limits != null and not _track_limits.lap_valid():
+		lap_time_text += "  INVALID"
+		_time_label.add_theme_color_override("font_color", F1Theme.RED)
+	else:
+		_time_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_time_label.text = lap_time_text
 	_lap_label.text = "LAP %d" % (_session.lap_count + 1)
 	_best_label.text = "BEST  %s" % _session.format_time(_session.best_lap_time)
 	_last_label.text = "LAST  %s" % _session.format_time(_session.last_lap_time)
+	if _minimap != null:
+		var positions: Array[Vector3] = [_car.global_transform.origin]
+		_minimap.update_positions(positions)
+
+
+## Track map widget + lap-validity source, wired by the main scene (0.6.0).
+func attach_context(track: TrackData, limits: TrackLimits) -> void:
+	_track_limits = limits
+	_minimap = MiniMap.new(track.points)
+	_minimap.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_minimap.position = Vector2(-262, 160)
+	add_child(_minimap)
+
+
+## Flash message through the sector label (track limits, camera switch).
+func show_message(message: String) -> void:
+	_flash(_sector_label, message)
+
+
+func show_invalid_lap() -> void:
+	_flash(_sector_label, "LAP INVALID  ///  TRACK LIMITS")
 
 
 func _on_lap_completed(lap_time: float, is_best: bool) -> void:

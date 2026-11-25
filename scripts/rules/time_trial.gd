@@ -60,6 +60,8 @@ func update(position: Vector3, delta: float) -> void:
 		_started = true
 		_lap_start_time = _sim_time
 
+		# lap completes when progress wraps past the start line and the car has
+		# driven past the last sector threshold during this lap
 	var previous := _last_progress
 	var progress := _progress_of(position)
 	for i in range(_sector_fractions.size()):
@@ -71,6 +73,9 @@ func update(position: Vector3, delta: float) -> void:
 			if is_best:
 				best_sector_times[i] = split
 			sector_completed.emit(i + 1, split, is_best)
+
+		# lap completes when progress wraps past the start line and the car has
+		# driven past the last sector threshold during this lap
 	_last_progress = progress
 	_max_progress = maxf(_max_progress, progress)
 
@@ -94,6 +99,11 @@ func _last_sector_threshold() -> float:
 	if _sector_fractions.is_empty():
 		return 0.5
 	return _sector_fractions[_sector_fractions.size() - 1]
+
+
+## Current lap progress 0..1 (used by track-limits measurement in main).
+func progress() -> float:
+	return _last_progress
 
 
 ## Nearest centerline point fraction (windowed search around last known).

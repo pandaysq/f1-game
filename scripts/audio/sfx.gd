@@ -32,6 +32,7 @@ func _ready() -> void:
 			_streams[key] = stream
 	for i in range(POOL_SIZE):
 		var p := AudioStreamPlayer.new()
+		p.bus = "SFX"
 		add_child(p)
 		_players.append(p)
 

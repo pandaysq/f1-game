@@ -19,6 +19,7 @@
 | `assets/audio/crash/crash_1..2.ogg` | удары металла при контакте корпуса (impactMetal_heavy_001, impactPlate_heavy_000; пик −3 дБ) | Kenney «Impact Sounds» — https://kenney.nl/assets/impact-sounds | CC0 1.0 |
 | `assets/audio/ui/*.ogg` | клик/назад/открыть/закрыть/тумблер/выбор + бипы старт-огней (click_002, back_002, open_001, close_001, switch_002, select_002, bong_001, confirmation_001) | Kenney «Interface Sounds» — https://kenney.nl/assets/interface-sounds | CC0 1.0 |
 | `assets/audio/music/jingle_win.ogg` | финишный джингл (Hit jingles, HIT01; пик −3 дБ) | Kenney «Music Jingles» — https://kenney.nl/assets/music-jingles | CC0 1.0 |
+| `assets/audio/music/menu_loop.ogg` | луп фоновой музыки главного меню (~154 с, синтовый грув; обработка: проверка швов лупа, громкость −6 дБ) | OpenGameArt: «Menu Music» by wipics — https://opengameart.org/content/menu-music-1 | CC0 1.0 — https://creativecommons.org/publicdomain/zero/1.0/ |
 
 Примечания:
 - Кнопки управления (`btn_*.png`) — композиты: полупрозрачный тёмный диск + белая

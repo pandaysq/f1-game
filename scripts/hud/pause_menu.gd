@@ -1,10 +1,14 @@
 class_name PauseMenu
 extends CanvasLayer
-## Pause overlay (0.4.0): Esc / P / touch pause button. Pauses the whole
-## tree; offers resume, race restart and exit to the main menu. Runs with
-## PROCESS_MODE_ALWAYS so it keeps working while the tree is paused.
+## Pause overlay (0.4.0, extended 0.6.0): Esc / P / touch pause button.
+## Pauses the whole tree; offers resume, race restart, quick audio settings
+## (volumes + haptics, same rows as the main settings screen) and exit to
+## the main menu. Runs with PROCESS_MODE_ALWAYS so it keeps working while
+## the tree is paused.
 
 var _root: Control
+var _quick_settings: VBoxContainer
+var _buttons_box: VBoxContainer
 
 
 func _ready() -> void:
@@ -37,23 +41,50 @@ func _ready() -> void:
 	title.add_theme_color_override("font_color", F1Theme.RED)
 	box.add_child(title)
 
+	_buttons_box = VBoxContainer.new()
+	_buttons_box.add_theme_constant_override("separation", 14)
+	box.add_child(_buttons_box)
+
 	var resume := F1Theme.button("RESUME", 32)
 	resume.pressed.connect(_close)
-	box.add_child(resume)
+	_buttons_box.add_child(resume)
 
-	var restart := F1Theme.button("RESTART RACE", 32)
+	var restart := F1Theme.button("RESTART", 32)
 	restart.pressed.connect(_restart)
-	box.add_child(restart)
+	_buttons_box.add_child(restart)
+
+	var quick := F1Theme.button("QUICK SETTINGS", 32)
+	quick.pressed.connect(_toggle_quick)
+	_buttons_box.add_child(quick)
 
 	var exit := F1Theme.button("EXIT TO MENU", 32)
 	exit.pressed.connect(_exit_to_menu)
-	box.add_child(exit)
+	_buttons_box.add_child(exit)
+
+	_quick_settings = VBoxContainer.new()
+	_quick_settings.add_theme_constant_override("separation", 8)
+	_quick_settings.visible = false
+	box.add_child(_quick_settings)
+	var audio_label := Label.new()
+	audio_label.text = "AUDIO  ///  HAPTICS"
+	audio_label.add_theme_font_override("font", F1Theme.font("bold"))
+	audio_label.add_theme_font_size_override("font_size", 16)
+	audio_label.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
+	audio_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_quick_settings.add_child(audio_label)
+	for key in ["master", "music", "sfx"]:
+		_quick_settings.add_child(F1Theme.volume_row(key, 340))
+	_quick_settings.add_child(F1Theme.vibration_row())
 
 	_root.visible = false
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("pause_game"):
+		if _quick_settings.visible:
+			_quick_settings.visible = false
+			_buttons_box.visible = true
+			return
 		toggle()
 		get_viewport().set_input_as_handled()
 
@@ -67,6 +98,8 @@ func toggle() -> void:
 
 func _open() -> void:
 	get_tree().paused = true
+	_quick_settings.visible = false
+	_buttons_box.visible = true
 	_root.visible = true
 	visible = true
 	Sfx.open()
@@ -77,6 +110,15 @@ func _close() -> void:
 	_root.visible = false
 	visible = false
 	Sfx.close()
+
+
+func _toggle_quick() -> void:
+	if _quick_settings.visible:
+		Sfx.close()
+	else:
+		Sfx.open()
+	_quick_settings.visible = not _quick_settings.visible
+	_buttons_box.visible = not _quick_settings.visible
 
 
 func _restart() -> void:

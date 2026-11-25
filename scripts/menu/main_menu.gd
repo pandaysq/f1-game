@@ -1,30 +1,48 @@
 extends Control
-## Main menu (0.4.0): F1-broadcast look — animated flowing backdrop, skewed
-## red-accent buttons, settings screen, and disabled stubs for future modes
-## (online multiplayer, championship, garage). The menu is the new entry
-## scene; it switches into scenes/main.tscn with Settings.launch_mode.
+## Main menu (0.4.0, extended 0.6.0): F1-broadcast look — animated flowing
+## backdrop, skewed red-accent buttons, settings screen, pre-race setup
+## (track / laps / AI difficulty), local stats panel and disabled stubs for
+## future modes (online multiplayer, championship, garage). The menu is the
+## entry scene; it switches into scenes/main.tscn with Settings.launch_mode.
+## A looping menu soundtrack rides the Music bus (MenuMusic).
 ##
-## Dev hook: APEX_SHOT_DIR=<dir> saves a menu screenshot and quits (visual QA).
+## Dev hook: APEX_SHOT_DIR=<dir> saves a menu screenshot and quits (visual
+## QA); APEX_SHOT_VIEW=settings|setup|stats opens the respective panel first.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 
 var _shot_dir := ""
 var _shot_wait := 0.0
 var _settings_panel: SettingsPanel
+var _race_setup: RaceSetupPanel
+var _tt_setup: RaceSetupPanel
+var _career_panel: CareerPanel
 
 
 func _ready() -> void:
 	Settings.apply_quality()
 	add_child(MenuBackground.new())
+	add_child(MenuMusic.new())
 
 	_add_logo()
 	_add_buttons()
 	_add_footer()
 	_settings_panel = SettingsPanel.new(func() -> void: pass)
 	add_child(_settings_panel)
-	# QA hook: capture the settings panel instead of the plain menu
-	if OS.get_environment("APEX_SHOT_VIEW") == "settings":
+	_race_setup = RaceSetupPanel.new("race")
+	add_child(_race_setup)
+	_tt_setup = RaceSetupPanel.new("tt")
+	add_child(_tt_setup)
+	_career_panel = CareerPanel.new()
+	add_child(_career_panel)
+	# QA hooks: capture a specific panel instead of the plain menu
+	var view := OS.get_environment("APEX_SHOT_VIEW")
+	if view == "settings":
 		_settings_panel.visible = true
+	elif view == "setup":
+		_race_setup.visible = true
+	elif view == "stats":
+		_career_panel.visible = true
 	if not OS.get_environment("APEX_SHOT_DIR").is_empty():
 		_shot_dir = OS.get_environment("APEX_SHOT_DIR")
 
@@ -44,10 +62,16 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel") and _settings_panel.visible:
-		return  # handled by the settings panel itself
-	if event.is_action_pressed("ui_accept") and not _settings_panel.visible:
-		_start("race")
+	if event.is_action_pressed("ui_cancel") and _any_panel_visible():
+		return  # handled by the panels themselves
+	if event.is_action_pressed("ui_accept") and not _any_panel_visible():
+		_race_setup.visible = true
+
+
+func _any_panel_visible() -> bool:
+	return (
+		_settings_panel.visible or _race_setup.visible or _tt_setup.visible or _career_panel.visible
+	)
 
 
 func _add_logo() -> void:
@@ -57,7 +81,7 @@ func _add_logo() -> void:
 	box.anchor_right = 0.5
 	box.offset_left = -320
 	box.offset_right = 320
-	box.offset_top = 64
+	box.offset_top = 20
 	box.add_theme_constant_override("separation", 4)
 	add_child(box)
 
@@ -93,21 +117,25 @@ func _add_buttons() -> void:
 	box.anchor_bottom = 0.5
 	box.offset_left = -190
 	box.offset_right = 190
-	box.offset_top = -52
-	box.add_theme_constant_override("separation", 10)
+	box.offset_top = -180
+	box.add_theme_constant_override("separation", 8)
 	add_child(box)
 
-	var play := F1Theme.button("PLAY", 38, Vector2(380, 64))
-	play.pressed.connect(func() -> void: _start("race"))
+	var play := F1Theme.button("PLAY", 38, Vector2(380, 60))
+	play.pressed.connect(func() -> void: _race_setup.visible = true)
 	box.add_child(play)
 
-	var tt := F1Theme.button("TIME TRIAL", 28, Vector2(380, 56))
-	tt.pressed.connect(func() -> void: _start("tt"))
+	var tt := F1Theme.button("TIME TRIAL", 28, Vector2(380, 52))
+	tt.pressed.connect(func() -> void: _tt_setup.visible = true)
 	box.add_child(tt)
 
-	var settings := F1Theme.button("SETTINGS", 28, Vector2(380, 56))
+	var settings := F1Theme.button("SETTINGS", 28, Vector2(380, 52))
 	settings.pressed.connect(func() -> void: _settings_panel.visible = true)
 	box.add_child(settings)
+
+	var stats := F1Theme.button("STATS", 28, Vector2(380, 56))
+	stats.pressed.connect(func() -> void: _career_panel.visible = true)
+	box.add_child(stats)
 
 	# future modes (phase 3+): visible stubs, disabled
 	box.add_child(_stub_button("MULTIPLAYER  ///  ONLINE"))
@@ -118,14 +146,14 @@ func _add_buttons() -> void:
 
 
 func _stub_button(label: String) -> Button:
-	var b := F1Theme.button(label, 22, Vector2(380, 46))
+	var b := F1Theme.button(label, 22, Vector2(380, 42))
 	b.disabled = true
 	return b
 
 
 func _add_footer() -> void:
 	var version := Label.new()
-	version.text = "APEX GP  v0.5.0"
+	version.text = "APEX GP  v0.6.0"
 	version.add_theme_font_override("font", F1Theme.font("bold"))
 	version.add_theme_font_size_override("font_size", 16)
 	version.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
@@ -147,8 +175,3 @@ func _add_footer() -> void:
 	note.offset_right = -24
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(note)
-
-
-func _start(mode: String) -> void:
-	Settings.launch_mode = mode
-	get_tree().change_scene_to_file(MAIN_SCENE)
