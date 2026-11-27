@@ -207,15 +207,23 @@ static func _test_hud_widgets(check: Callable, root: Node) -> void:
 	fx.set_state(false, 60.0, 0.5)
 	check.call(fx.layer == 5, "nitro fx renders under the HUD layers")
 	fx.queue_free()
-	# cockpit wheel: builds rim/spokes/leds (all under RimRoot)
 	var wheel := CockpitWheel.new()
 	root.add_child(wheel)
-	wheel.update_state(0.5, 0.8)
-	var rim_root := wheel.get_child(0)
-	check.call(
-		rim_root.get_child_count() >= 20,
-		"cockpit wheel builds rim/spokes/hub/15 leds (%d)" % rim_root.get_child_count()
-	)
+	var rim_root := wheel.get_node("RimRoot") as Node3D
+	var gear_label := rim_root.get_node("GearNumber") as Label3D
+	var mount_pitch := wheel.rotation.x
+	wheel.update_state(0.5, 0.8, 4)
+	check.call(rim_root.rotation.z < 0.0, "cockpit wheel rolls clockwise on right steer")
+	check.call(gear_label.text == "4", "cockpit wheel displays the forward gear")
+	var lit := 0
+	for part in rim_root.get_children():
+		if part is MeshInstance3D and part.material_override.emission_enabled:
+			lit += 1
+	check.call(lit == 12, "cockpit wheel lights 12 of 15 LEDs at 80% RPM")
+	wheel.update_state(-0.5, 0.0, 0)
+	check.call(rim_root.rotation.z > 0.0, "cockpit wheel rolls counterclockwise on left steer")
+	check.call(is_equal_approx(wheel.rotation.x, mount_pitch), "steering preserves mount pitch")
+	check.call(gear_label.text == "R", "cockpit wheel displays reverse")
 	wheel.queue_free()
 	# menu panels compile (constructing them needs autoloads; probe load only)
 	check.call(load("res://scripts/menu/race_setup.gd") != null, "race_setup.gd compiles")

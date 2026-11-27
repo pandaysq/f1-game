@@ -139,7 +139,7 @@ func _physics_process(delta: float) -> void:
 			var rpm_norm := RaceAudio.engine_norm_rpm(
 				_car.powertrain.rpm, _car.powertrain.idle_rpm(), _car.powertrain.redline_rpm()
 			)
-			wheel.update_state(steer_norm, rpm_norm)
+			wheel.update_state(steer_norm, rpm_norm, _car.powertrain.gear)
 		Mode.T_CAM:
 			t_cam.fov = lerpf(70.0, 80.0, kick)
 			t_cam.position = T_CAM_LOCAL + _jitter(jitter * 0.6)
