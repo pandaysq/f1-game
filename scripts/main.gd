@@ -339,7 +339,8 @@ func _update_feedback(delta: float) -> void:
 		return
 	var car := cars[0]
 	var speed := car.linear_velocity.length()
-	camera_rig.shake_level = 1.0 if car.nitro_active else 0.0
+	# nitro keeps its own shake; kerb rumble adds on top (0..0.6)
+	camera_rig.shake_level = maxf(1.0 if car.nitro_active else 0.0, car.kerb_level * 0.6)
 	if nitro_fx != null:
 		nitro_fx.set_state(car.nitro_active, speed, delta)
 	if car.nitro_active and not _prev_nitro:
