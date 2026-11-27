@@ -84,11 +84,11 @@ func _test_config() -> void:
 			var events: Array = InputMap.action_get_events(action)
 			_check(not events.is_empty(), "action '%s' has events" % action)
 
-			# explicit mobile rendering method: default Forward+ falls back to
-			# software Vulkan (lavapipe, ~15 FPS) on machines without real drivers
+		# explicit mobile rendering method: default Forward+ falls back to
+		# software Vulkan (lavapipe, ~15 FPS) on machines without real drivers
 
-			# settings persistence round-trip (0.4.0): the autoload is a runtime
-			# node, compile-time identifier is unavailable in a SceneTree script
+		# settings persistence round-trip (0.4.0): the autoload is a runtime
+		# node, compile-time identifier is unavailable in a SceneTree script
 	var settings_path: Variant = ProjectSettings.get_setting("autoload/Settings", "")
 	_check(settings_path == "*res://scripts/settings.gd", "Settings autoload is registered")
 
@@ -324,6 +324,8 @@ func _test_time_trial_logic() -> void:
 			# persistence: best lap is saved and reloaded
 
 		# back-and-forth near the start line must not count a lap
+
+		# persistence: best lap is saved and reloaded
 
 		# persistence: best lap is saved and reloaded
 
