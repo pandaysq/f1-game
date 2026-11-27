@@ -206,7 +206,10 @@ func _step_wheels(input: Dictionary) -> void:
 	var rear_speed := (wheel_spin[2] + wheel_spin[3]) * 0.5
 	powertrain.update_rpm(rear_speed, throttle)
 	if bool(assists_on.get("auto_gearbox", false)):
-		powertrain.auto_shift(rear_speed, throttle, sim_time)
+		# shift on road speed, not driven-wheel speed: wheelspin at launch
+		# would otherwise trigger an early upshift and the box hunts 1-2-3
+		var forward_speed := linear_velocity.dot(-global_transform.basis.z)
+		powertrain.auto_shift(forward_speed / maxf(wheel_radius, 0.01), throttle, sim_time)
 
 		# TC as a rate-limited controller: target cut from slip error,
 		# slew toward it; no static on/off threshold hunting
