@@ -109,14 +109,14 @@ func _process(_delta: float) -> void:
 	else:
 		_drs_label.text = "DRS"
 		_drs_label.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
-		var tyre_pct := int(round((1.0 - _car.tire_wear_avg()) * 100.0))
-		_tyre_label.text = "TYRE %d%%" % tyre_pct
-		if tyre_pct < 80:
-			_tyre_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.1))
-		elif tyre_pct < 92:
-			_tyre_label.add_theme_color_override("font_color", F1Theme.YELLOW)
-		else:
-			_tyre_label.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
+	var tyre_pct := int(round((1.0 - _car.tire_wear_avg()) * 100.0))
+	_tyre_label.text = "TYRE %d%%" % tyre_pct
+	if tyre_pct < 80:
+		_tyre_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.1))
+	elif tyre_pct < 92:
+		_tyre_label.add_theme_color_override("font_color", F1Theme.YELLOW)
+	else:
+		_tyre_label.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
 	_standings_label.text = _standings_text()
 	if _minimap != null:
 		var positions: Array[Vector3] = []
