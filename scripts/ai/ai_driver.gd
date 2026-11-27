@@ -18,7 +18,7 @@ var car: Car
 var line: RacingLine
 var profile: SpeedProfile
 var track: TrackData
-var difficulty: Dictionary = {}
+difficulty: Dictionary = {}
 
 ## race-injected context (defaults keep the driver running free)
 var frozen: bool = false
@@ -196,7 +196,7 @@ func _reachable_speed() -> float:
 func _recovery_tick(v_fwd: float) -> void:
 	var center_d := track.points[_index].distance_to(car.global_transform.origin)
 	var half_width := track.widths[_index] * 0.5
-	if center_d > half_width + 6.0:
+	if center_d > half_width + 4.0:
 		_offtrack_seconds += TICK_DT
 	else:
 		_offtrack_seconds = 0.0
@@ -204,7 +204,10 @@ func _recovery_tick(v_fwd: float) -> void:
 		_stuck_seconds += TICK_DT
 	else:
 		_stuck_seconds = 0.0
-	if _offtrack_seconds > 3.0 or _stuck_seconds > 5.0:
+	# 0.7.0: snappier race recovery — a car pinned against a wall must not
+	# sit there for 5+ seconds (watchdog margins stay clear of the ~5.8 m
+	# clean-line excursions the solo lap test allows)
+	if _offtrack_seconds > 3.0 or _stuck_seconds > 2.5:
 		_offtrack_seconds = 0.0
 		_stuck_seconds = 0.0
 		reset_requested.emit()

@@ -58,7 +58,8 @@
         330.0
       ]
     ],
-    "launch_rpm": 7000.0
+    "launch_rpm": 7000.0,
+    "brake_nm": 60.0
   },
   "gearbox": {
     "reverse_ratio": -5.5,
@@ -98,7 +99,11 @@
     "nominal_load_n": 2000.0,
     "wheel_inertia_compensation": 1.0,
     "spin_damp_nms": 0.4,
-    "relaxation_length_m": 0.15
+    "relaxation_length_m": 0.15,
+    "rolling_resistance_coeff": 0.013,
+    "wear_rate_per_s": 0.00035,
+    "wear_slip_weight": 5.0,
+    "wear_grip_loss_max": 0.1
   },
   "aero": {
     "drag_coeff": 0.48,
@@ -126,5 +131,9 @@
     "stability_yaw_gain": 2.5,
     "steering_assist_speed_gain": 0.35,
     "tc_slew_per_s": 8.0
+  },
+  "kerb": {
+    "force_frac": 0.12,
+    "vibration_hz": 18.0
   }
 }
