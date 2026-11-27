@@ -18,7 +18,7 @@ var car: Car
 var line: RacingLine
 var profile: SpeedProfile
 var track: TrackData
-difficulty: Dictionary = {}
+var difficulty: Dictionary = {}
 
 ## race-injected context (defaults keep the driver running free)
 var frozen: bool = false
