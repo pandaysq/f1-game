@@ -23,6 +23,7 @@ static func run(check: Callable, root: Node) -> void:
 	_test_career_store(check)
 	_test_hud_widgets(check, root)
 	_test_input_feedback(check)
+	_test_physics_extras(check)
 	settings.free()
 
 
@@ -241,3 +242,73 @@ static func _test_input_feedback(check: Callable) -> void:
 		elif name == "CRASH_MS":
 			crash = int(constants[key])
 	check.call(green > 0 and green < nitro and nitro < crash, "haptic vocabulary is ordered")
+
+
+# ------------------------------------------------------------ physics extras
+
+
+static func _test_physics_extras(check: Callable) -> void:
+	var car: GDScript = load("res://scripts/vehicle/car.gd")
+	# kerb rumble force oscillates under load and vanishes unloaded
+	var cfg := {"force_frac": 0.12, "vibration_hz": 18.0}
+	check.call(car.kerb_bump_force(0.0, 0.0, cfg) == 0.0, "kerb bump is zero for an unloaded wheel")
+	var bump_a: float = car.kerb_bump_force(4000.0, 0.0, cfg)
+	var bump_b: float = car.kerb_bump_force(4000.0, 1.0 / 72.0, cfg)
+	check.call(absf(bump_b - bump_a) > 1.0, "kerb bump oscillates over a quarter period")
+	check.call(car.kerb_bump_force(-1.0, 0.0, cfg) == 0.0, "kerb bump never pulls the wheel down")
+	# engine braking only when the throttle is closed, scaled by rpm share
+	var ebrake := {"brake_nm": 60.0}
+	check.call(
+		car.engine_brake_nm(13000.0, 13000.0, 1.0, ebrake) == 0.0, "engine brake cuts with throttle"
+	)
+	check.call(
+		is_equal_approx(car.engine_brake_nm(13000.0, 13000.0, 0.0, ebrake), 60.0),
+		"engine brake peaks at redline"
+	)
+	check.call(
+		car.engine_brake_nm(0.0, 13000.0, 0.0, ebrake) == 0.0, "engine brake is zero at zero rpm"
+	)
+	# rolling resistance opposes travel, zero without load
+	check.call(
+		car.rolling_resistance(4000.0, 10.0, 0.013) < 0.0,
+		"rolling resistance opposes forward travel"
+	)
+	check.call(
+		car.rolling_resistance(4000.0, -10.0, 0.013) > 0.0,
+		"rolling resistance opposes reverse travel"
+	)
+	check.call(
+		car.rolling_resistance(0.0, 10.0, 0.013) == 0.0,
+		"rolling resistance is zero for an airborne wheel"
+	)
+	# tire wear saturates and costs grip
+	var tires := {
+		"wear_rate_per_s": 0.00035,
+		"wear_slip_weight": 5.0,
+		"nominal_load_n": 2000.0,
+		"wear_grip_loss_max": 0.10,
+	}
+	var w := 0.0
+	for i in range(20000):
+		w = car.wear_step(w, 5000.0, 0.2, 0.1, 0.05, tires)
+	check.call(w > 0.5, "tire wear accumulates under slip load")
+	check.call(
+		car.wear_step(2.0, 5000.0, 0.2, 0.1, 0.05, tires) == 1.0, "tire wear saturates at 1.0"
+	)
+	check.call(is_equal_approx(car.wear_grip_factor(0.0, tires), 1.0), "fresh tires have full grip")
+	check.call(
+		is_equal_approx(car.wear_grip_factor(1.0, tires), 0.9),
+		"fully worn tires lose wear_grip_loss_max grip"
+	)
+	# vehicle.json exposes the new physics knobs
+	var data: Dictionary = (
+		JSON.parse_string(FileAccess.get_file_as_string("res://assets/data/vehicle.json"))
+		as Dictionary
+	)
+	check.call(data.get("kerb", {}).has("force_frac"), "vehicle.json has kerb rumble config")
+	check.call(data.get("tires", {}).has("wear_rate_per_s"), "vehicle.json has tire wear config")
+	check.call(data.get("engine", {}).has("brake_nm"), "vehicle.json has engine brake config")
+	check.call(
+		data.get("tires", {}).has("rolling_resistance_coeff"),
+		"vehicle.json has rolling resistance config"
+	)
