@@ -112,13 +112,17 @@ func _add_logo() -> void:
 	title.add_theme_color_override("font_color", Color.WHITE)
 	box.add_child(title)
 
+	var subtitle_row := HBoxContainer.new()
+	subtitle_row.add_theme_constant_override("separation", 14)
+	subtitle_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(subtitle_row)
+	subtitle_row.add_child(F1Theme.sep(F1Theme.RED, 16.0))
 	var subtitle := Label.new()
-	subtitle.text = "F1-STYLE RACING  ///  SEASON ONE"
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.text = "SEASON ONE"
 	subtitle.add_theme_font_override("font", F1Theme.font("semibold"))
 	subtitle.add_theme_font_size_override("font_size", 20)
 	subtitle.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
-	box.add_child(subtitle)
+	subtitle_row.add_child(subtitle)
 
 
 func _add_buttons() -> void:
@@ -130,7 +134,7 @@ func _add_buttons() -> void:
 	box.anchor_bottom = 0.5
 	box.offset_left = -190
 	box.offset_right = 190
-	box.offset_top = -180
+	box.offset_top = -140
 	box.add_theme_constant_override("separation", 8)
 	add_child(box)
 
@@ -158,22 +162,16 @@ func _add_buttons() -> void:
 	)
 	box.add_child(champ)
 
-	# future modes (phase 3+): visible stubs, disabled
-	box.add_child(_stub_button("MULTIPLAYER  ///  ONLINE"))
-	box.add_child(_stub_button("GARAGE"))
+	# future modes (phase 3+): visible stubs with icons + SOON tags
+	box.add_child(F1Theme.stub_button("MULTIPLAYER", "world"))
+	box.add_child(F1Theme.stub_button("GARAGE", "gears"))
 
 	play.grab_focus()
 
 
-func _stub_button(label: String) -> Button:
-	var b := F1Theme.button(label, 22, Vector2(380, 42))
-	b.disabled = true
-	return b
-
-
 func _add_footer() -> void:
 	var version := Label.new()
-	version.text = "APEX GP  v0.8.0"
+	version.text = "APEX GP  v0.9.0"
 	version.add_theme_font_override("font", F1Theme.font("bold"))
 	version.add_theme_font_size_override("font_size", 16)
 	version.add_theme_color_override("font_color", F1Theme.TEXT_DIM)

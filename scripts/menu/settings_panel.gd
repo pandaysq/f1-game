@@ -53,9 +53,7 @@ func _init(on_changed: Callable) -> void:
 	box.add_child(F1Theme.vibration_row())
 
 	box.add_child(_spacer(8))
-	var back := F1Theme.button("BACK  [ESC]", 24, Vector2(220, 44))
-	back.pressed.connect(hide)
-	box.add_child(back)
+	box.add_child(F1Theme.back_row(hide, 24, Vector2(220, 44)))
 
 
 func _unhandled_input(event: InputEvent) -> void:

@@ -36,11 +36,17 @@ func _init() -> void:
 	var stats := CareerStore.stats()
 	if races.is_empty():
 		var empty := Label.new()
-		empty.text = "NO RACES YET  ///  GO RACE!"
+		empty.text = "NO RACES YET"
 		empty.add_theme_font_override("font", F1Theme.font("semibold"))
 		empty.add_theme_font_size_override("font_size", 24)
 		empty.add_theme_color_override("font_color", Color.WHITE)
 		box.add_child(empty)
+		var cta := Label.new()
+		cta.text = "GO RACE!"
+		cta.add_theme_font_override("font", F1Theme.font("regular"))
+		cta.add_theme_font_size_override("font_size", 18)
+		cta.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
+		box.add_child(cta)
 	else:
 		box.add_child(_totals(stats))
 		box.add_child(_best_laps(stats))
@@ -50,9 +56,7 @@ func _init() -> void:
 			box.add_child(_race_row(r))
 
 	box.add_child(_spacer(6))
-	var back := F1Theme.button("BACK  [ESC]", 24, Vector2(220, 44))
-	back.pressed.connect(_close)
-	box.add_child(back)
+	box.add_child(F1Theme.back_row(_close, 24, Vector2(220, 44)))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -90,17 +94,52 @@ func _cell(text: String, font_size: int, color: Color) -> Label:
 	return l
 
 
-## RACES 8  ///  WINS 2  ///  PODIUMS 5 as one dark panel strip.
+## One dark strip: [icon] value LABEL groups split by red slabs (0.9.0).
 func _totals(stats: Dictionary) -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", F1Theme.panel_style())
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 30)
+	row.add_theme_constant_override("separation", 16)
 	panel.add_child(row)
-	row.add_child(_cell("RACES  %d" % int(stats.get("races", 0)), 24, Color.WHITE))
-	row.add_child(_cell("WINS  %d" % int(stats.get("wins", 0)), 24, F1Theme.YELLOW))
-	row.add_child(_cell("PODIUMS  %d" % int(stats.get("podiums", 0)), 24, F1Theme.GREEN))
+	row.add_child(
+		_stat_group("checkered-flag", str(int(stats.get("races", 0))), "RACES", Color.WHITE)
+	)
+	row.add_child(F1Theme.sep(F1Theme.RED, 22.0))
+	row.add_child(_stat_group("trophy", str(int(stats.get("wins", 0))), "WINS", F1Theme.YELLOW))
+	row.add_child(F1Theme.sep(F1Theme.RED, 22.0))
+	(
+		row
+		. add_child(
+			_stat_group(
+				"podium-winner",
+				str(int(stats.get("podiums", 0))),
+				"PODIUMS",
+				F1Theme.GREEN,
+			)
+		)
+	)
 	return panel
+
+
+## [icon][value][label] group used by the totals strip.
+func _stat_group(icon_name: String, value: String, label: String, color: Color) -> HBoxContainer:
+	var group := HBoxContainer.new()
+	group.add_theme_constant_override("separation", 10)
+	group.add_child(UiIcons.icon(icon_name, 22, color))
+	var v := Label.new()
+	v.text = value
+	v.add_theme_font_override("font", F1Theme.font("black"))
+	v.add_theme_font_size_override("font_size", 26)
+	v.add_theme_color_override("font_color", Color.WHITE)
+	group.add_child(v)
+	var l := Label.new()
+	l.text = label
+	l.add_theme_font_override("font", F1Theme.font("semibold"))
+	l.add_theme_font_size_override("font_size", 15)
+	l.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	group.add_child(l)
+	return group
 
 
 ## Best lap per known track (only tracks with at least one timed race).
@@ -121,8 +160,11 @@ func _best_laps(stats: Dictionary) -> PanelContainer:
 			row.add_child(
 				_cell(
 					(
-						"%s  BEST  %s"
-						% [track_id.to_upper(), RaceHud.format_lap(float(best_by_track[track_id]))]
+						"%s  %s"
+						% [
+							Settings.track_name(track_id),
+							RaceHud.format_lap(float(best_by_track[track_id]))
+						]
 					),
 					20,
 					Color.WHITE
@@ -147,6 +189,7 @@ func _race_row(r: Dictionary) -> PanelContainer:
 	row.add_child(_cell("P%d/%d" % [position, int(r.get("car_count", 8))], 20, Color.WHITE))
 	row.add_child(_cell(track_name, 18, Color.WHITE))
 	var best := float(r.get("best_lap", -1.0))
-	row.add_child(_cell("BEST  " + RaceHud.format_lap(best), 18, F1Theme.TEXT_DIM))
+	row.add_child(UiIcons.icon("stopwatch", 15, F1Theme.TEXT_DIM))
+	row.add_child(_cell(RaceHud.format_lap(best), 18, F1Theme.TEXT_DIM))
 	row.add_child(_cell(str(r.get("date", "")), 16, F1Theme.TEXT_DIM))
 	return panel

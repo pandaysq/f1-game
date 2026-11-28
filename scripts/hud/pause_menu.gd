@@ -66,7 +66,7 @@ func _ready() -> void:
 	_quick_settings.visible = false
 	box.add_child(_quick_settings)
 	var audio_label := Label.new()
-	audio_label.text = "AUDIO  ///  HAPTICS"
+	audio_label.text = "AUDIO"
 	audio_label.add_theme_font_override("font", F1Theme.font("bold"))
 	audio_label.add_theme_font_size_override("font_size", 16)
 	audio_label.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
@@ -74,9 +74,20 @@ func _ready() -> void:
 	_quick_settings.add_child(audio_label)
 	for key in ["master", "music", "sfx"]:
 		_quick_settings.add_child(F1Theme.volume_row(key, 340))
+	_quick_settings.add_child(_section_hint("HAPTICS"))
 	_quick_settings.add_child(F1Theme.vibration_row())
 
 	_root.visible = false
+
+
+func _section_hint(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_override("font", F1Theme.font("bold"))
+	l.add_theme_font_size_override("font_size", 16)
+	l.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return l
 
 
 func _unhandled_input(event: InputEvent) -> void:

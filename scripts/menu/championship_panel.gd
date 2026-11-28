@@ -93,7 +93,7 @@ func rebuild(keep_confirm: bool = false) -> void:
 
 func _build_setup(box: VBoxContainer) -> void:
 	box.add_child(_title("CHAMPIONSHIP"))
-	box.add_child(_subtitle("OFFLINE SEASON  ///  RACE AI  ///  SCORE POINTS"))
+	box.add_child(_subtitle("OFFLINE SEASON"))
 	box.add_child(_section("NEW SEASON"))
 	var rounds: Array = []
 	for v in ChampionshipStore.ROUND_CHOICES:
@@ -120,16 +120,7 @@ func _build_active(box: VBoxContainer, state: Dictionary, round_info: Dictionary
 	var schedule: Array = state.get("schedule", [])
 	box.add_child(_title("CHAMPIONSHIP"))
 	box.add_child(
-		_subtitle(
-			(
-				"ROUND %d OF %d  ///  %s"
-				% [
-					int(round_info.get("index", 0)) + 1,
-					schedule.size(),
-					_track_name(str(round_info.get("track_id", "")))
-				]
-			)
-		)
+		_subtitle("ROUND %d OF %d" % [int(round_info.get("index", 0)) + 1, schedule.size()])
 	)
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 24)
@@ -151,15 +142,12 @@ func _build_active(box: VBoxContainer, state: Dictionary, round_info: Dictionary
 	right.add_child(_section("STANDINGS"))
 	var table := _store.standings()
 	if table.is_empty():
-		right.add_child(_hint("NO RACES YET  ///  GO SCORE SOME POINTS"))
+		right.add_child(_hint("NO POINTS YET"))
 	for i in range(table.size()):
 		right.add_child(_standing_row(i, table[i]))
 
 	box.add_child(_spacer(2))
-	var start_label := (
-		"START ROUND %d  ///  %s"
-		% [int(round_info.get("index", 0)) + 1, _track_name(str(round_info.get("track_id", "")))]
-	)
+	var start_label := "START ROUND %d" % (int(round_info.get("index", 0)) + 1)
 	var start := F1Theme.button(start_label, 24, Vector2(560, 50))
 	start.pressed.connect(_start_round)
 	box.add_child(start)
@@ -177,20 +165,29 @@ func _build_finished(box: VBoxContainer, state: Dictionary) -> void:
 	if not table.is_empty():
 		champion = str(table[0].get("name", "YOU"))
 	box.add_child(_title("SEASON COMPLETE"))
-	box.add_child(_subtitle("CHAMPION  ///  %s" % champion))
+	var champ_row := HBoxContainer.new()
+	champ_row.add_theme_constant_override("separation", 14)
+	champ_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(champ_row)
+	champ_row.add_child(UiIcons.icon("trophy", 28, F1Theme.YELLOW))
+	champ_row.add_child(_cell("CHAMPION", 16, F1Theme.TEXT_DIM))
+	champ_row.add_child(F1Theme.sep(F1Theme.YELLOW, 20.0))
+	champ_row.add_child(_cell(champion, 26, Color.WHITE))
 	box.add_child(_section("FINAL STANDINGS"))
 	for i in range(table.size()):
 		box.add_child(_standing_row(i, table[i]))
 	box.add_child(_spacer(4))
-	var season_label := (
-		"SEASON %s  ///  %d ROUNDS  ///  %s AI"
-		% [
-			str(state.get("season_key", "")).to_upper(),
-			schedule.size(),
-			str(state.get("difficulty", "pro")).to_upper(),
-		]
+	var info_row := HBoxContainer.new()
+	info_row.add_theme_constant_override("separation", 12)
+	info_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(info_row)
+	info_row.add_child(F1Theme.chip("SEASON %s" % str(state.get("season_key", "")).to_upper()))
+	info_row.add_child(F1Theme.sep(F1Theme.RED, 16.0))
+	info_row.add_child(F1Theme.chip("%d ROUNDS" % schedule.size()))
+	info_row.add_child(F1Theme.sep(F1Theme.RED, 16.0))
+	info_row.add_child(
+		F1Theme.chip("%s AI" % str(state.get("difficulty", "pro")).to_upper(), 15, Color.WHITE)
 	)
-	box.add_child(_hint(season_label))
 	var again := F1Theme.button("NEW SEASON", 30, Vector2(380, 58))
 	again.pressed.connect(
 		func() -> void:
@@ -255,10 +252,8 @@ func _abandon_button() -> Button:
 	return b
 
 
-func _back_button() -> Button:
-	var b := F1Theme.button("BACK  [ESC]", 20, Vector2(380, 36))
-	b.pressed.connect(_close)
-	return b
+func _back_button() -> HBoxContainer:
+	return F1Theme.back_row(_close, 20, Vector2(300, 36))
 
 
 ## ------------------------------------------------------------- widgets
@@ -320,8 +315,12 @@ func _choice_row(
 	row.add_theme_constant_override("separation", 6)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_child(row)
+	var labels: Array = []
 	for value in values:
-		var b := F1Theme.button(value, 20, Vector2(86, 42))
+		labels.append(String(value).to_upper())
+	var width := F1Theme.fit_width(labels, 20, 86.0)
+	for value in values:
+		var b := F1Theme.button(String(value).to_upper(), 20, Vector2(width, 42))
 		b.toggle_mode = true
 		b.button_pressed = value == current
 		b.pressed.connect(
