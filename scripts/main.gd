@@ -97,6 +97,11 @@ func _ready() -> void:
 		_setup_time_trial()
 	else:
 		_setup_race()
+	# Audit: cap directional shadow cascades per quality preset — mobile
+	# GPUs spend real time rendering far shadows nobody can see.
+	var shadow_dist := Settings.shadow_max_distance()
+	for light in _find_all(self, "DirectionalLight3D"):
+		(light as DirectionalLight3D).directional_shadow_max_distance = shadow_dist
 	debug_overlay.visible = OS.get_environment("APEX_DEBUG") == "1"
 	_init_screenshot_hook()
 	if OS.get_environment("APEX_FAKE_RESULT") == "1" and race_hud != null:

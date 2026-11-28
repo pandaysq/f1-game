@@ -172,7 +172,7 @@ func _add_buttons() -> void:
 
 func _add_footer() -> void:
 	var version := Label.new()
-	version.text = "APEX GP  v0.10.0"
+	version.text = "APEX GP  v0.10.1"
 	version.add_theme_font_override("font", F1Theme.font("bold"))
 	version.add_theme_font_size_override("font_size", 16)
 	version.add_theme_color_override("font_color", F1Theme.TEXT_DIM)

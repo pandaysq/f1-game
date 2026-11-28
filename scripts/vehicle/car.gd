@@ -59,6 +59,11 @@ var track_wetness := 0.0
 # dynamic (relaxation-length) slip states per wheel
 var _slip_lon_state: Array[float] = [0.0, 0.0, 0.0, 0.0]
 var _slip_lat_state: Array[float] = [0.0, 0.0, 0.0, 0.0]
+
+## Last suspension-ray length per wheel (audit A2): the per-frame wheel
+## visuals reuse the physics tick's ray instead of casting four extra
+## rays every rendered frame.
+var _ray_dist: Array[float] = [1.0, 1.0, 1.0, 1.0]
 # per-wheel tire wear 0..1 (race-long) and the surface probe stored from
 # the suspension raycast (grip / surface name of the ground under the wheel)
 var _wear: Array[float] = [0.0, 0.0, 0.0, 0.0]
@@ -125,6 +130,17 @@ func _ready() -> void:
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	# origin sits at wheel-attach plane; COM is below it per config
 	center_of_mass = Vector3(0.0, -float(data.get("center_of_mass_height_m", 0.30)), 0.0)
+	# Body inertia comes from vehicle.json (audit B1): without an explicit
+	# tensor Godot derives one from the collision shapes, silently ignoring
+	# the spec pitch/yaw/roll values. Local axes: X = right (pitch),
+	# Y = up (yaw), Z = back (roll).
+	var inertia_cfg: Dictionary = data.get("inertia_kg_m2", {})
+	if not inertia_cfg.is_empty():
+		inertia = Vector3(
+			float(inertia_cfg.get("pitch", 1215.0)),
+			float(inertia_cfg.get("yaw", 1440.0)),
+			float(inertia_cfg.get("roll", 300.0)),
+		)
 	# Godot applies default linear/angular damping (0.1) to rigid bodies:
 	# that is a hidden speed-proportional brake. Our aero model owns drag,
 	# so damping is zeroed explicitly (see docs/PHYSICS.md).
@@ -373,9 +389,11 @@ func _raycast_compression(
 	var query := PhysicsRayQueryParameters3D.create(from, to, 1, [get_rid()])
 	var hit := space.intersect_ray(query)
 	if hit.is_empty():
+		_ray_dist[i] = rest_length + wheel_radius
 		_surf_grips[i] = 1.0
 		_surf_names[i] = "asphalt"
 		return 0.0
+	_ray_dist[i] = from.distance_to(hit["position"] as Vector3)
 	# surface probe rides the SAME ray as the suspension probe: the extra
 	# 4 rays/tick of the Phase-1 _surface_grip raycast are gone
 	var node := hit.get("collider") as Node
@@ -583,9 +601,7 @@ func _update_visual_wheels() -> void:
 		var holder := container.get_node_or_null("WheelHolder%d" % i) as Node3D
 		if holder == null:
 			continue
-		var compression := clampf(
-			rest_length + _wheel_radius() - _wheel_ray_distance(i), 0.0, rest_length
-		)
+		var compression := clampf(rest_length + _wheel_radius() - _ray_dist[i], 0.0, rest_length)
 		holder.position = _wheel_local_pos[i] - Vector3(0, rest_length - compression, 0)
 		if _front_mask[i]:
 			holder.rotation.y = -steering_angle
@@ -596,19 +612,6 @@ func _update_visual_wheels() -> void:
 
 func _wheel_radius() -> float:
 	return float(data.get("wheel", {}).get("radius_m", 0.33))
-
-
-func _wheel_ray_distance(i: int) -> float:
-	var attach_global := to_global(_wheel_local_pos[i])
-	var up := global_transform.basis.y
-	var rest_length := float(_susp.get("rest_length_m", 0.25))
-	var from := attach_global
-	var to := attach_global - up * (rest_length + _wheel_radius())
-	var query := PhysicsRayQueryParameters3D.create(from, to, 1, [get_rid()])
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if hit.is_empty():
-		return rest_length + _wheel_radius()
-	return from.distance_to(hit["position"] as Vector3)
 
 
 ## Reset car to a transform and zero all state (R key / out of track).

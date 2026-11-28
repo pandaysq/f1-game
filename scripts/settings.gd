@@ -136,6 +136,18 @@ func apply_quality() -> void:
 			viewport.scaling_3d_scale = 1.0
 
 
+## Max draw distance of directional-light shadow cascades (audit: mobile
+## GPUs spend real time on far shadows nobody can see). Applied to every
+## DirectionalLight3D when the race scene loads.
+func shadow_max_distance() -> float:
+	match quality:
+		"low":
+			return 40.0
+		"high":
+			return 100.0
+	return 60.0
+
+
 # ------------------------------------------------------------ audio buses
 
 

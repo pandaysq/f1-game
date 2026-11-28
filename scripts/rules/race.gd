@@ -34,6 +34,7 @@ var _wake_drag: Array[float] = []
 var _drs_zone: Array[bool] = []
 var _drs_available: Array[bool] = []
 var _cars_ahead: Array[int] = []  # nearest car ahead on track, -1 none
+var _progress_hint: Array[int] = []  # last known centerline index per car (audit A1)
 
 
 func _init(p_track: TrackData, p_config: Dictionary, p_car_count: int) -> void:
@@ -71,6 +72,8 @@ func _init(p_track: TrackData, p_config: Dictionary, p_car_count: int) -> void:
 	_cars_ahead.fill(-1)
 	speeds.resize(car_count)
 	speeds.fill(0.0)
+	_progress_hint.resize(car_count)
+	_progress_hint.fill(-1)
 
 
 ## Grid transforms: two-wide rows behind the start line, 8 m per row,
@@ -153,7 +156,7 @@ func update(car_states: Array, delta: float) -> void:
 func _track_car(i: int, pos: Vector3, _delta: float) -> void:
 	if finished[i]:
 		return
-	var p := _progress_of(pos)
+	var p := _progress_of(pos, i)
 	if progress[i] < 0.0:
 		progress[i] = p
 		_max_progress_since_line[i] = p
@@ -178,18 +181,49 @@ func _track_car(i: int, pos: Vector3, _delta: float) -> void:
 	progress[i] = p
 
 
-## Nearest centerline fraction with a windowed search (robust enough at
-## 120 Hz car speeds).
-func _progress_of(pos: Vector3) -> float:
+## Nearest centerline fraction with a windowed search around the car's
+## last known index (audit A1: the per-car full scan every physics tick
+## was the hottest CPU spot on a full grid). First call and teleports
+## (window miss over 20 m) fall back to a full scan.
+func _progress_of(pos: Vector3, car: int) -> float:
 	var n := track.point_count()
+	var hint := -1
+	if car >= 0 and car < _progress_hint.size():
+		hint = _progress_hint[car]
+	if hint < 0:
+		var found := _full_scan_index(pos)
+		_set_progress_hint(car, found)
+		return float(found) / float(n)
+	var best := hint
+	var best_d := INF
+	for offset in range(-24, 25):
+		var idx := (hint + offset + n) % n
+		var d: float = track.points[idx].distance_squared_to(pos)
+		if d < best_d:
+			best_d = d
+			best = idx
+	if best_d > 400.0:
+		best = _full_scan_index(pos)
+	_set_progress_hint(car, best)
+	return float(best) / float(n)
+
+
+## Brute-force nearest centerline index — the windowed search's fallback
+## and the first-call initializer.
+func _full_scan_index(pos: Vector3) -> int:
 	var best := 0
 	var best_d := INF
-	for i in range(n):
+	for i in range(track.point_count()):
 		var d: float = track.points[i].distance_squared_to(pos)
 		if d < best_d:
 			best_d = d
 			best = i
-	return float(best) / float(n)
+	return best
+
+
+func _set_progress_hint(car: int, index: int) -> void:
+	if car >= 0 and car < _progress_hint.size():
+		_progress_hint[car] = index
 
 
 ## Dirty air / slipstream wake per car from geometric proximity.
@@ -264,13 +298,15 @@ func _update_drs(car_states: Array) -> void:
 
 
 ## Distance along the lap from car i to car ahead (forward, wraps).
+## Purely geometric (audit C1): completed laps must not enter — a car a
+## lap up that just passed us IS physically where it looks, and the old
+## lap-adjusted delta used to clamp to 0 m and fake DRS availability.
+## Lap-aware race distances (intervals, laps behind) use _race_distance().
 func _distance_ahead(ahead: int, i: int) -> float:
 	var lap_len := track.lap_length()
 	var delta := progress[ahead] - progress[i]
 	if delta < 0.0:
 		delta += 1.0
-	if laps_completed[ahead] > laps_completed[i]:
-		delta -= 1.0
 	return clampf(delta, 0.0, 1.0) * lap_len
 
 

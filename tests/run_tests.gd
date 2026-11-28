@@ -13,6 +13,7 @@ const FeatureChecksScript := preload("res://tests/feature_checks.gd")
 const ChampionshipChecksScript := preload("res://tests/championship_checks.gd")
 const WeatherChecksScript := preload("res://tests/weather_checks.gd")
 const UiRestyleChecksScript := preload("res://tests/ui_restyle_checks.gd")
+const AuditChecksScript := preload("res://tests/audit_checks.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -49,6 +50,7 @@ func _initialize() -> void:
 	_test_time_trial_logic()
 	_test_racing_line_and_profile()
 	_test_race_logic()
+	_test_audit_fixes()
 	if not _failures.is_empty():
 		_finish()
 		return
@@ -969,3 +971,7 @@ func _evaluate_ai_lap(driver: Node) -> void:
 		d.max_off_center < 7.0 + 2.0,
 		"AI stays within road + kerb (max %.1f m off center)" % d.max_off_center
 	)
+
+
+func _test_audit_fixes() -> void:
+	AuditChecksScript.run(_check)

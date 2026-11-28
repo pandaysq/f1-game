@@ -33,6 +33,7 @@ var _message_sub: Label
 var _standings_box: VBoxContainer
 var _standings_rows: Dictionary = {}  # car_index -> {pos, gap} labels
 var _last_order: Array = []
+var _gap_next_ms := 0  # gap column refresh gate (audit: dirty-check, 4 Hz)
 var _results_root: Control
 var _minimap: MiniMap
 var _cars: Array = []
@@ -230,19 +231,43 @@ func _update_tyre() -> void:
 
 
 ## Live standings: one slab per driver — pos, bar color, tag, lap count.
-## Structure rebuilds only when the order changes; texts update per frame.
+## Rows are built once per car and re-ordered with move_child when the
+## order changes (audit A3 — freeing and recreating the slabs mid-fight
+## caused frame hitches). Gap texts refresh on a 4 Hz dirty-checked gate
+## instead of every frame.
 func _update_standings() -> void:
 	var order := _session.positions()
 	if order != _last_order:
 		_last_order = order.duplicate()
-		_rebuild_standings(order)
+		_apply_standings_order(order)
+	var now := Time.get_ticks_msec()
+	if now < _gap_next_ms:
+		return
+	_gap_next_ms = now + 250
 	for rank in range(order.size()):
 		var i: int = order[rank]
 		var row: Dictionary = _standings_rows.get(i, {})
 		if row.is_empty():
 			continue
+		var text := _gap_text(i, rank)
+		var gap_label := row["gap"] as Label
+		if gap_label.text != text:
+			gap_label.text = text
+
+
+## Puts an existing row node into its rank slot and refreshes the pos
+## label. Rows are keyed by car index, so re-ordering is a move_child.
+func _apply_standings_order(order: Array) -> void:
+	_ensure_standings_rows()
+	for rank in range(order.size()):
+		var i: int = order[rank]
+		var row: Dictionary = _standings_rows.get(i, {})
+		if row.is_empty():
+			continue
+		var node: Node = row["node"]
+		if node.get_index() != rank:
+			_standings_box.move_child(node, rank)
 		(row["pos"] as Label).text = "P%d" % (rank + 1)
-		(row["gap"] as Label).text = _gap_text(i, rank)
 
 
 ## Broadcast gap column (0.10.0): LEADER on P1, "L2" when laps down,
@@ -275,13 +300,12 @@ func _compound_chip() -> PanelContainer:
 	return chip
 
 
-func _rebuild_standings(order: Array) -> void:
-	_standings_rows.clear()
-	for child in _standings_box.get_children():
-		_standings_box.remove_child(child)
-		child.queue_free()
-	for rank in range(order.size()):
-		var i: int = order[rank]
+## Builds the standings slabs once per car index (audit A3: reused and
+## re-ordered on position changes, never freed/recreated mid-race).
+func _ensure_standings_rows() -> void:
+	if not _standings_rows.is_empty():
+		return
+	for i in range(_session.car_count):
 		var is_player := i == _car_index
 		var row := PanelContainer.new()
 		var style := F1Theme.panel_style(
@@ -312,7 +336,7 @@ func _rebuild_standings(order: Array) -> void:
 		var gap_label := _styled_label(13, "semibold", F1Theme.TEXT_DIM)
 		line.add_child(gap_label)
 		_standings_box.add_child(row)
-		_standings_rows[i] = {"pos": pos_label, "gap": gap_label}
+		_standings_rows[i] = {"node": row, "pos": pos_label, "gap": gap_label}
 
 
 ## Track map widget (0.6.0): built by the main scene once the track is known.
