@@ -14,6 +14,7 @@ const ChampionshipChecksScript := preload("res://tests/championship_checks.gd")
 const WeatherChecksScript := preload("res://tests/weather_checks.gd")
 const UiRestyleChecksScript := preload("res://tests/ui_restyle_checks.gd")
 const AuditChecksScript := preload("res://tests/audit_checks.gd")
+const PerfChecksScript := preload("res://tests/perf_checks.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -51,6 +52,7 @@ func _initialize() -> void:
 	_test_racing_line_and_profile()
 	_test_race_logic()
 	_test_audit_fixes()
+	_test_perf_fixes()
 	if not _failures.is_empty():
 		_finish()
 		return
@@ -100,10 +102,14 @@ func _test_config() -> void:
 	var settings_path: Variant = ProjectSettings.get_setting("autoload/Settings", "")
 	_check(settings_path == "*res://scripts/settings.gd", "Settings autoload is registered")
 
-	# explicit mobile rendering method: default Forward+ falls back to
-	# software Vulkan (lavapipe, ~15 FPS) on machines without real drivers
+	# explicit gl_compatibility method (0.10.2): the Mobile renderer needs
+	# Vulkan; weak phones and Vulkan-less desktops end up on software
+	# Vulkan (lavapipe, ~15 FPS) or fail entirely
 	var renderer: Variant = ProjectSettings.get_setting("rendering/renderer/rendering_method", "")
-	_check(renderer == "mobile", "explicit mobile rendering method (no software fallback)")
+	_check(
+		renderer == "gl_compatibility",
+		"explicit gl_compatibility rendering method (no software fallback)"
+	)
 
 	# settings persistence round-trip (0.4.0): the autoload is a runtime
 	# node, compile-time identifier is unavailable in a SceneTree script
@@ -258,9 +264,10 @@ func _test_vehicle_visuals() -> void:
 			# calibration: body AABB must match the physics reference points
 
 		# calibration: body AABB must match the physics reference points
-	_check(mesh_count > 10, "body carries imported meshes (%d)" % mesh_count)
+	_check(mesh_count == 1, "merged body: one draw node for imported meshes (%d)" % mesh_count)
 	_check(
-		hidden_tires >= 4, "glb tires hidden, procedural wheels own suspension (%d)" % hidden_tires
+		hidden_tires == 0,
+		"glb tires excluded from merged body, wheels own visuals (%d)" % hidden_tires
 	)
 	# calibration: body AABB must match the physics reference points
 	var aabb := _body_aabb(body)
@@ -975,3 +982,7 @@ func _evaluate_ai_lap(driver: Node) -> void:
 
 func _test_audit_fixes() -> void:
 	AuditChecksScript.run(_check)
+
+
+func _test_perf_fixes() -> void:
+	PerfChecksScript.run(_check)

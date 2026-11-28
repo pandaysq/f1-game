@@ -39,6 +39,7 @@ var assists: Dictionary = {
 }
 
 ## Quality preset ("low" / "medium" / "high"): MSAA + 3D resolution scale.
+## 0.10.2 budgets: low = MSAA off / 0.70, medium = off / 0.85, high = 2x / 1.0.
 var quality: String = "medium"
 
 ## Audio volumes, linear 0..1, routed through the Master / Music / SFX buses.
@@ -58,13 +59,21 @@ var race: Dictionary = {
 ## Haptic feedback on touch devices (crash, nitro pulse, green flag).
 var vibration: bool = true
 
+## FPS chip in the race HUD (device fps testing, 0.10.2).
+var show_fps: bool = true
+
 ## Launch mode chosen in the main menu ("race" | "tt"). The main scene reads
 ## it; APEX_MODE env still wins for headless/test runs.
 var launch_mode: String = "race"
 
 
 func _ready() -> void:
+	var had_cfg := FileAccess.file_exists(SAVE_PATH)
 	load_settings()
+	if not had_cfg and OS.has_feature("mobile"):
+		# first launch on a phone: start from the cheap preset; the player
+		# can raise it in settings (0.10.2 fps triage)
+		quality = "low"
 	apply_quality()
 	apply_volumes()
 	print(
@@ -85,6 +94,7 @@ func save_settings() -> void:
 	for key in race:
 		cf.set_value("race", key, race[key])
 	cf.set_value("game", "vibration", vibration)
+	cf.set_value("game", "show_fps", show_fps)
 	var err := cf.save(SAVE_PATH)
 	if err != OK:
 		push_warning("[Settings] cannot save: %s" % error_string(err))
@@ -113,6 +123,7 @@ func load_settings() -> void:
 	if not TyreCompound.is_valid(str(race.get("tyre", "slick"))):
 		race["tyre"] = TyreCompound.DEFAULT_COMPOUND
 	vibration = bool(cf.get_value("game", "vibration", vibration))
+	show_fps = bool(cf.get_value("game", "show_fps", show_fps))
 
 
 ## Applies the quality preset to the root viewport (MSAA + resolution scale).
@@ -127,13 +138,13 @@ func apply_quality() -> void:
 	match quality:
 		"low":
 			viewport.msaa_3d = Viewport.MSAA_DISABLED
-			viewport.scaling_3d_scale = 0.75
+			viewport.scaling_3d_scale = 0.70
 		"high":
-			viewport.msaa_3d = Viewport.MSAA_4X
-			viewport.scaling_3d_scale = 1.0
-		_:
 			viewport.msaa_3d = Viewport.MSAA_2X
 			viewport.scaling_3d_scale = 1.0
+		_:
+			viewport.msaa_3d = Viewport.MSAA_DISABLED
+			viewport.scaling_3d_scale = 0.85
 
 
 ## Max draw distance of directional-light shadow cascades (audit: mobile

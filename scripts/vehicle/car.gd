@@ -88,6 +88,32 @@ var _nitro_cfg: Dictionary
 var _engine_cfg: Dictionary
 var _kerb_cfg: Dictionary
 var _mass := 750.0
+# per-tick JSON constants, cached at setup (0.10.2 fps triage)
+var _wheel_radius_m := 0.33
+var _wheel_spin_inertia := 0.9
+var _steer_max := 0.55
+var _steer_min := 0.09
+var _steer_top := 80.0
+var _steer_rate := 4.5
+var _steer_gain := 0.35
+var _susp_rest := 0.25
+var _susp_spring := 120000.0
+var _susp_damper := 8000.0
+var _susp_arb := 18000.0
+var _brake_max := 4000.0
+var _brake_bias := 0.58
+var _nitro_min_speed := 2.0
+var _nitro_thrust := 3600.0
+var _wake_drag_cut := 0.45
+var _drs_drag_cut := 0.28
+var _wake_df_loss := 0.3
+var _wake_dirty_rear := 0.7
+var _drag_coeff := 0.48
+var _front_wing_cf := 0.45
+var _rear_wing_cf := 0.55
+var _drs_front_df_cut := 0.0
+var _drs_rear_df_cut := 0.24
+var _stability_yaw_gain := 2.5
 
 
 func _ready() -> void:
@@ -103,6 +129,34 @@ func _ready() -> void:
 	_engine_cfg = data.get("engine", {})
 	_kerb_cfg = data.get("kerb", {})
 	_mass = float(data.get("mass_kg", 750.0))
+	# 120 Hz hot path: read every JSON constant once instead of per tick
+	_wheel_radius_m = float(data.get("wheel", {}).get("radius_m", 0.33))
+	_wheel_spin_inertia = float(data.get("wheel", {}).get("spin_inertia_kg_m2", 0.9))
+	_steer_max = float(_steer_params.get("max_angle_rad", 0.55))
+	_steer_min = float(_steer_params.get("min_angle_at_top_speed_rad", 0.09))
+	_steer_top = float(_steer_params.get("top_speed_for_min_rad", 80.0))
+	_steer_rate = float(_steer_params.get("rate_rad_per_s", 4.5))
+	_steer_gain = float(_assist_params.get("steering_assist_speed_gain", 0.35))
+	_susp_rest = float(_susp.get("rest_length_m", 0.25))
+	_susp_spring = float(_susp.get("spring_rate_n_per_m", 120000.0))
+	_susp_damper = float(_susp.get("damper_n_s_per_m", 8000.0))
+	_susp_arb = float(_susp.get("anti_roll_bar_n_per_m", 18000.0))
+	_brake_max = float(_brakes.get("max_torque_nm", 4000.0))
+	_brake_bias = float(_brakes.get("bias_front", 0.58))
+	_nitro_min_speed = float(_nitro_cfg.get("min_speed_mps", 2.0))
+	_nitro_thrust = float(_nitro_cfg.get("thrust_n", 3600.0))
+	var wake_cfg: Dictionary = _aero.get("wake", {})
+	var drs_cfg: Dictionary = _aero.get("drs", {})
+	_wake_drag_cut = float(wake_cfg.get("drag_cut_max", 0.45))
+	_wake_df_loss = float(wake_cfg.get("downforce_loss_max", 0.3))
+	_wake_dirty_rear = float(wake_cfg.get("dirty_rear_factor", 0.7))
+	_drs_drag_cut = float(drs_cfg.get("drag_cut", 0.28))
+	_drs_front_df_cut = float(drs_cfg.get("front_df_cut", 0.0))
+	_drs_rear_df_cut = float(drs_cfg.get("rear_df_cut", 0.24))
+	_drag_coeff = float(_aero.get("drag_coeff", 0.48))
+	_front_wing_cf = float(_aero.get("front_wing_coeff", 0.45))
+	_rear_wing_cf = float(_aero.get("rear_wing_coeff", 0.55))
+	_stability_yaw_gain = float(_assist_params.get("stability_yaw_gain", 2.5))
 
 	powertrain = Powertrain.new(data)
 	nitro_left = nitro_capacity()
@@ -188,25 +242,15 @@ func _update_steering(input: Dictionary) -> void:
 	var speed := linear_velocity.length()
 	var max_angle := _max_steer_angle(speed)
 	if bool(assists_on.get("steering_assist", false)):
-		max_angle = lerpf(
-			max_angle,
-			max_angle * 0.5,
-			(
-				float(_assist_params.get("steering_assist_speed_gain", 0.35))
-				* clampf(speed / 60.0, 0.0, 1.0)
-			)
-		)
+		max_angle = lerpf(max_angle, max_angle * 0.5, _steer_gain * clampf(speed / 60.0, 0.0, 1.0))
 	var target := float(input.get("steer", 0.0)) * max_angle
-	var rate := float(_steer_params.get("rate_rad_per_s", 4.5)) * TICK_DT
+	var rate := _steer_rate * TICK_DT
 	steering_angle = move_toward(steering_angle, target, rate)
 
 
 func _max_steer_angle(speed: float) -> float:
-	var max_angle := float(_steer_params.get("max_angle_rad", 0.55))
-	var min_angle := float(_steer_params.get("min_angle_at_top_speed_rad", 0.09))
-	var top := maxf(float(_steer_params.get("top_speed_for_min_rad", 80.0)), 1.0)
-	var t := clampf(speed / top, 0.0, 1.0)
-	return lerpf(max_angle, min_angle, t)
+	var t := clampf(speed / maxf(_steer_top, 1.0), 0.0, 1.0)
+	return lerpf(_steer_max, _steer_min, t)
 
 
 # ---------------------------------------------------------------- wheels
@@ -216,14 +260,14 @@ func _step_wheels(input: Dictionary) -> void:
 	var throttle := float(input.get("throttle", 0.0))
 	var brake := float(input.get("brake", 0.0))
 	var space := get_world_3d().direct_space_state
-	var wheel_radius := float(data.get("wheel", {}).get("radius_m", 0.33))
-	var spin_inertia := float(data.get("wheel", {}).get("spin_inertia_kg_m2", 0.9))
-	var rest_length := float(_susp.get("rest_length_m", 0.25))
-	var spring_rate := float(_susp.get("spring_rate_n_per_m", 120000.0))
-	var damper := float(_susp.get("damper_n_s_per_m", 8000.0))
-	var arb := float(_susp.get("anti_roll_bar_n_per_m", 18000.0))
-	var brake_torque := float(_brakes.get("max_torque_nm", 4000.0)) * brake
-	var bias := float(_brakes.get("bias_front", 0.58))
+	var wheel_radius := _wheel_radius_m
+	var spin_inertia := _wheel_spin_inertia
+	var rest_length := _susp_rest
+	var spring_rate := _susp_spring
+	var damper := _susp_damper
+	var arb := _susp_arb
+	var brake_torque := _brake_max * brake
+	var bias := _brake_bias
 
 	# average rear wheel speed drives rpm estimate (reverse-aware sign)
 	var rear_speed := (wheel_spin[2] + wheel_spin[3]) * 0.5
@@ -521,12 +565,10 @@ func _apply_nitro(input: Dictionary) -> void:
 		return
 	var speed := linear_velocity.length()
 	var pressed := bool(input.get("nitro", false))
-	nitro_active = (
-		pressed and nitro_left > 0.0 and speed >= float(_nitro_cfg.get("min_speed_mps", 2.0))
-	)
+	nitro_active = pressed and nitro_left > 0.0 and speed >= _nitro_min_speed
 	nitro_left = nitro_tank_step(nitro_left, nitro_active, TICK_DT, _nitro_cfg)
 	if nitro_active:
-		apply_central_force(-global_transform.basis.z * float(_nitro_cfg.get("thrust_n", 3600.0)))
+		apply_central_force(-global_transform.basis.z * _nitro_thrust)
 
 
 # ---------------------------------------------------------------- aero
@@ -538,25 +580,23 @@ func _apply_aero() -> void:
 	if speed < 0.1:
 		return
 
-	var wake: Dictionary = _aero.get("wake", {})
-	var drs: Dictionary = _aero.get("drs", {})
 	# slipstream (long-range wake) cuts drag; an open DRS flap adds to it
-	var drag_mult := 1.0 - clampf(aero_wake_drag, 0.0, 1.0) * float(wake.get("drag_cut_max", 0.45))
+	var drag_mult := 1.0 - clampf(aero_wake_drag, 0.0, 1.0) * _wake_drag_cut
 	if drs_active:
-		drag_mult *= 1.0 - float(drs.get("drag_cut", 0.28))
+		drag_mult *= 1.0 - _drs_drag_cut
 
-	var drag_force := float(_aero.get("drag_coeff", 0.48)) * drag_mult * speed * speed
+	var drag_force := _drag_coeff * drag_mult * speed * speed
 	apply_central_force(-velocity.normalized() * drag_force)
 	# wing balance: per-axle downforce applied at the wheel attach points.
 	# Dirty air hits the front wing first (front loss >= rear -> understeer,
 	# which is stability-friendly); an open DRS flap sheds rear downforce.
-	var dirty_front := clampf(aero_wake_df, 0.0, 1.0) * float(wake.get("downforce_loss_max", 0.3))
-	var dirty_rear := dirty_front * float(wake.get("dirty_rear_factor", 0.7))
-	var front_cf := float(_aero.get("front_wing_coeff", 0.45)) * (1.0 - dirty_front)
-	var rear_cf := float(_aero.get("rear_wing_coeff", 0.55)) * (1.0 - dirty_rear)
+	var dirty_front := clampf(aero_wake_df, 0.0, 1.0) * _wake_df_loss
+	var dirty_rear := dirty_front * _wake_dirty_rear
+	var front_cf := _front_wing_cf * (1.0 - dirty_front)
+	var rear_cf := _rear_wing_cf * (1.0 - dirty_rear)
 	if drs_active:
-		front_cf *= 1.0 - float(drs.get("front_df_cut", 0.0))
-		rear_cf *= 1.0 - float(drs.get("rear_df_cut", 0.24))
+		front_cf *= 1.0 - _drs_front_df_cut
+		rear_cf *= 1.0 - _drs_rear_df_cut
 
 	var q := speed * speed
 	# local axle offsets from the body origin (wheel attach plane)
@@ -578,15 +618,7 @@ func _apply_assists(_input: Dictionary) -> void:
 	if bool(assists_on.get("stability_control", false)):
 		# yaw damping: oppose yaw rate that is not commanded by steering
 		var yaw_rate := angular_velocity.y
-		apply_torque(
-			(
-				Vector3.UP
-				* -yaw_rate
-				* float(_assist_params.get("stability_yaw_gain", 2.5))
-				* _mass
-				* 0.01
-			)
-		)
+		apply_torque(Vector3.UP * -yaw_rate * _stability_yaw_gain * _mass * 0.01)
 
 
 # ---------------------------------------------------------------- visual
@@ -596,7 +628,7 @@ func _update_visual_wheels() -> void:
 	var container := get_node_or_null("Visuals")
 	if container == null:
 		return
-	var rest_length := float(_susp.get("rest_length_m", 0.25))
+	var rest_length := _susp_rest
 	for i in range(4):
 		var holder := container.get_node_or_null("WheelHolder%d" % i) as Node3D
 		if holder == null:
@@ -611,7 +643,7 @@ func _update_visual_wheels() -> void:
 
 
 func _wheel_radius() -> float:
-	return float(data.get("wheel", {}).get("radius_m", 0.33))
+	return _wheel_radius_m
 
 
 ## Reset car to a transform and zero all state (R key / out of track).

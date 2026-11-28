@@ -21,6 +21,7 @@ var _message_box: HBoxContainer
 var _message_icon: TextureRect
 var _message_label: Label
 var _message_sub: Label
+var _hud_next_ms := 0  # per-frame HUD refresh gate (0.10.2, ~15 Hz)
 
 
 func _init(car: Car, session: TimeTrial) -> void:
@@ -135,6 +136,10 @@ func _timing_row(icon_name: String, size: float, color: Color, value: Label) -> 
 
 
 func _process(_delta: float) -> void:
+	var now_ms := Time.get_ticks_msec()
+	if now_ms < _hud_next_ms:
+		return
+	_hud_next_ms = now_ms + 66
 	var speed_kmh := _car.linear_velocity.length() * 3.6
 	_speed_label.text = "%d" % int(speed_kmh)
 	_gear_label.text = "R" if _car.powertrain.gear == 0 else str(_car.powertrain.gear)

@@ -55,6 +55,7 @@ class TrackView:
 	var _scale := 1.0
 	var _offset := Vector2.ZERO
 	var _dirty_fit := true
+	var _local_pts := PackedVector2Array()  # mapped polyline, fit-only
 
 	func _notification(what: int) -> void:
 		if what == NOTIFICATION_RESIZED:
@@ -75,6 +76,11 @@ class TrackView:
 		_scale = minf(avail.x / span.x, avail.y / span.y)
 		var fitted := span * _scale
 		_offset = (size - fitted) * 0.5 - min_v * _scale
+		# map the whole polyline once per fit (0.10.2: _draw used to remap
+		# ~700 points every rendered frame)
+		_local_pts.resize(map_points.size())
+		for i in range(map_points.size()):
+			_local_pts[i] = map_points[i] * _scale + _offset
 		_dirty_fit = false
 
 	func _to_local(point: Vector2) -> Vector2:
@@ -85,13 +91,9 @@ class TrackView:
 			return
 		if _dirty_fit:
 			_recompute_fit()
-		var pts := PackedVector2Array()
-		pts.resize(map_points.size())
-		for i in range(map_points.size()):
-			pts[i] = _to_local(map_points[i])
-		draw_polyline(pts, TRACK_COLOR, 2.5, true)
+		draw_polyline(_local_pts, TRACK_COLOR, 2.5, true)
 		# start/finish marker on the first centerline point
-		draw_circle(pts[0], 3.0, START_COLOR)
+		draw_circle(_local_pts[0], 3.0, START_COLOR)
 		for i in range(car_points.size()):
 			var is_player := i == player_index
 			var color := PLAYER_COLOR if is_player else AI_COLOR

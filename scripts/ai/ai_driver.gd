@@ -13,6 +13,13 @@ const TICK_DT := 1.0 / 120.0
 const WHEELBASE_M := 3.1
 const V_TOP_MPS := 82.0
 const BRAKE_LOOKAHEAD_M := 70.0
+## Steering/throttle recompute every DECISION_TICKS ticks (30 Hz at the
+## 120 Hz sim rate) — per-tick GDScript AI was the top CPU cost on
+## phones (0.10.2 fps triage). Command slew rate is scaled to match.
+const DECISION_TICKS := 4
+## Line-index search window around the last index (at 30 Hz decisions a
+## car covers under 3 m per decision; +-12 points is ~70 m of slack).
+const SEARCH_WINDOW := 12
 
 var car: Car
 var line: RacingLine
@@ -33,6 +40,16 @@ var _steer_cmd := 0.0
 var _rng := RandomNumberGenerator.new()
 var _offtrack_seconds := 0.0
 var _stuck_seconds := 0.0
+var _decision_countdown := 0
+var _cmd_throttle := 0.0
+var _cmd_brake := 0.0
+var _mu_eff := 0.95
+var _pace := 1.0
+var _steer_noise := 0.0
+var _mass := 750.0
+var _c_df := 1.0
+var _c_drag := 0.48
+var _input_buffer := {}  # reused: no dict allocation per tick
 
 
 func setup(
@@ -56,12 +73,16 @@ func setup(
 	car.assists_on["abs"] = true
 	car.assists_on["stability_control"] = true
 	car.assists_on["steering_assist"] = false
-
-
-func _physics_process(_delta: float) -> void:
-	if car == null or line == null or profile == null:
-		return
-	var input := {
+	# derived constants cached once (0.10.2): reading JSON dictionaries
+	# every physics tick was measurable GDScript overhead at 120 Hz
+	_mu_eff = float(difficulty.get("mu_eff", 0.95))
+	_pace = float(difficulty.get("pace", 1.0))
+	_steer_noise = float(difficulty.get("steer_noise", 0.0))
+	_mass = float(car.data.get("mass_kg", 750.0))
+	var aero: Dictionary = car.data.get("aero", {})
+	_c_df = float(aero.get("front_wing_coeff", 0.45)) + float(aero.get("rear_wing_coeff", 0.55))
+	_c_drag = float(aero.get("drag_coeff", 0.48))
+	_input_buffer = {
 		"throttle": 0.0,
 		"brake": 0.0,
 		"steer": 0.0,
@@ -69,33 +90,49 @@ func _physics_process(_delta: float) -> void:
 		"shift_up": false,
 		"shift_down": false,
 	}
+
+
+func _physics_process(_delta: float) -> void:
+	if car == null or line == null or profile == null:
+		return
 	if not frozen:
-		_update_index()
 		var v_fwd := _forward_speed()
-		var steer := _steering(v_fwd)
-		# the profile already IS the achievable speed at this point (its own
-		# backward pass is monotone); re-deriving a windowed limit here jumps
-		# non-monotonically and caused late braking into the hairpin
-		var target := profile.at(_index) * float(difficulty.get("pace", 1.0))
-		var throttle := clampf((target - v_fwd) / 6.0, 0.0, 1.0)
-		var brake := clampf((v_fwd - target) * 0.5, 0.0, 1.0)
-		# corner power budget: full throttle mid-corner at 25+ m/s trips the
-		# traction limit (combined slip); scale throttle by the unused grip
-		var mu_eff := float(difficulty.get("mu_eff", 0.95))
-		var k_now := absf(line.curvature[_index])
-		var a_lat := v_fwd * v_fwd * k_now
-		var a_budget := mu_eff * 9.81 * 1.4
-		if a_budget > 0.1:
-			throttle *= sqrt(clampf(1.0 - a_lat * a_lat / (a_budget * a_budget), 0.0, 1.0))
-		if brake > 0.05:
-			throttle = 0.0
-		input["steer"] = steer
-		input["throttle"] = throttle
-		input["brake"] = brake
 		_recovery_tick(v_fwd)
-	car.external_input = input
+		# decisions at 30 Hz (0.10.2): pure-pursuit steering and the throttle
+		# envelope change slowly next to a 120 Hz tick; between decisions the
+		# last commanded values are reused as-is
+		_decision_countdown -= 1
+		if _decision_countdown <= 0:
+			_decision_countdown = DECISION_TICKS
+			_update_index()
+			var steer := _steering(v_fwd)
+			# the profile already IS the achievable speed at this point (its own
+			# backward pass is monotone); re-deriving a windowed limit here jumps
+			# non-monotonically and caused late braking into the hairpin
+			var target := profile.at(_index) * _pace
+			var throttle := clampf((target - v_fwd) / 6.0, 0.0, 1.0)
+			var brake := clampf((v_fwd - target) * 0.5, 0.0, 1.0)
+			# corner power budget: full throttle mid-corner at 25+ m/s trips the
+			# traction limit (combined slip); scale throttle by the unused grip
+			var k_now := absf(line.curvature[_index])
+			var a_lat := v_fwd * v_fwd * k_now
+			var a_budget := _mu_eff * 9.81 * 1.4
+			if a_budget > 0.1:
+				throttle *= sqrt(clampf(1.0 - a_lat * a_lat / (a_budget * a_budget), 0.0, 1.0))
+			if brake > 0.05:
+				throttle = 0.0
+			_cmd_throttle = throttle
+			_cmd_brake = brake
+			_input_buffer["steer"] = _steer_cmd
+			_input_buffer["throttle"] = _cmd_throttle
+			_input_buffer["brake"] = brake
+	else:
+		_input_buffer["steer"] = 0.0
+		_input_buffer["throttle"] = 0.0
+		_input_buffer["brake"] = 0.0
+	car.external_input = _input_buffer
 	# AI opens DRS whenever rules allow; shuts it under braking
-	car.drs_active = drs_available and not frozen and input["brake"] < 0.2
+	car.drs_active = drs_available and not frozen and _input_buffer["brake"] < 0.2
 
 
 func _forward_speed() -> float:
@@ -117,7 +154,7 @@ func _update_index() -> void:
 		return
 	var best := _index
 	var best_d := INF
-	for off in range(-30, 31):
+	for off in range(-SEARCH_WINDOW, SEARCH_WINDOW + 1):
 		var i := (_index + off + n) % n
 		var d := line.points[i].distance_squared_to(car.global_transform.origin)
 		if d < best_d:
@@ -152,22 +189,17 @@ func _steering(v_fwd: float) -> float:
 	# grip-envelope cap: never command more steer than the lateral budget can
 	# hold (bicycle model). Uncapped pursuit demands 0.4 rad at 25 m/s ->
 	# 89 m/s^2 -> guaranteed spin. The 1.5 slack covers understeer gradient.
-	var mu_eff := float(difficulty.get("mu_eff", 0.95))
-	var vehicle: Dictionary = car.data
-	var mass := float(vehicle.get("mass_kg", 750.0))
-	var aero: Dictionary = vehicle.get("aero", {})
-	var c_df := float(aero.get("front_wing_coeff", 0.45)) + float(aero.get("rear_wing_coeff", 0.55))
-	var a_cap := mu_eff * (9.81 + c_df * v_fwd * v_fwd / mass) * 1.5
+	var a_cap := _mu_eff * (9.81 + _c_df * v_fwd * v_fwd / _mass) * 1.5
 	var delta_cap := atan(a_cap * WHEELBASE_M / maxf(v_fwd * v_fwd, 4.0))
 	delta = clampf(delta, -delta_cap, delta_cap)
 	var max_steer := car._max_steer_angle(v_fwd)
 	var steer := clampf(delta / maxf(max_steer, 0.01), -1.0, 1.0)
 	# command slew: full lock in ~0.35 s, kills the correction overshoot
-	steer = move_toward(_steer_cmd, steer, 3.0 * TICK_DT)
+	# slew step scaled by the decision interval keeps the old full-lock time
+	steer = move_toward(_steer_cmd, steer, 3.0 * TICK_DT * float(DECISION_TICKS))
 	_steer_cmd = steer
-	var noise := float(difficulty.get("steer_noise", 0.0))
-	if noise > 0.0:
-		steer = clampf(steer + (_rng.randf() * 2.0 - 1.0) * noise, -1.0, 1.0)
+	if _steer_noise > 0.0:
+		steer = clampf(steer + (_rng.randf() * 2.0 - 1.0) * _steer_noise, -1.0, 1.0)
 	return steer
 
 

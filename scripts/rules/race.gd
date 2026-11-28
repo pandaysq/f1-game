@@ -9,6 +9,13 @@ signal lap_completed(car_index: int, lap_time: float)
 signal race_finished(classification: Array)
 
 const TICK_DT := 1.0 / 120.0
+## Wake (dirty air / slipstream) and the nearest-ahead cache recompute at
+## reduced rates: their O(n^2) pair scans were the top CPU cost of a
+## full grid at 120 Hz on phones (0.10.2 fps triage: ~9 ms per tick on
+## the QA x86 sandbox). DRS itself stays per-tick: it is cheap and
+## reads the cached nearest-ahead index.
+const WAKE_EVERY_TICKS := 6
+const AHEAD_EVERY_TICKS := 4
 
 var track: TrackData
 var config: Dictionary = {}
@@ -35,6 +42,7 @@ var _drs_zone: Array[bool] = []
 var _drs_available: Array[bool] = []
 var _cars_ahead: Array[int] = []  # nearest car ahead on track, -1 none
 var _progress_hint: Array[int] = []  # last known centerline index per car (audit A1)
+var _tick := 0  # ticks since the green flag, drives the decimation gates
 
 
 func _init(p_track: TrackData, p_config: Dictionary, p_car_count: int) -> void:
@@ -129,13 +137,16 @@ func update(car_states: Array, delta: float) -> void:
 	if not started:
 		return
 	race_time += delta
+	_tick += 1
 	var count := mini(car_count, car_states.size())
 	for i in range(count):
 		var state: Dictionary = car_states[i]
 		_track_car(i, state.get("pos", Vector3.ZERO) as Vector3, delta)
 		speeds[i] = float(state.get("speed", 0.0))
-	_update_wakes(car_states)
-	_update_ahead()
+	if _tick % WAKE_EVERY_TICKS == 1:
+		_update_wakes(car_states)
+	if _tick % AHEAD_EVERY_TICKS == 1:
+		_update_ahead()
 	_update_drs(car_states)
 	if not classification.is_empty():
 		return
@@ -196,7 +207,7 @@ func _progress_of(pos: Vector3, car: int) -> float:
 		return float(found) / float(n)
 	var best := hint
 	var best_d := INF
-	for offset in range(-24, 25):
+	for offset in range(-10, 11):
 		var idx := (hint + offset + n) % n
 		var d: float = track.points[idx].distance_squared_to(pos)
 		if d < best_d:

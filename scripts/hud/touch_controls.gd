@@ -34,6 +34,7 @@ const LAYOUT := {
 
 var _buttons: Dictionary = {}
 var _pause_button: TextureButton
+var _layout_next_ms := 0  # layout gate (0.10.2): buttons move on resize only
 
 
 func _ready() -> void:
@@ -65,6 +66,10 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	var now_ms := Time.get_ticks_msec()
+	if now_ms < _layout_next_ms:
+		return
+	_layout_next_ms = now_ms + 250
 	var rect := _visible_rect()
 	var scale := clampf(rect.y / 720.0, 0.72, 1.15)
 	for action in _buttons:

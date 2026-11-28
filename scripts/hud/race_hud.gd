@@ -34,6 +34,7 @@ var _standings_box: VBoxContainer
 var _standings_rows: Dictionary = {}  # car_index -> {pos, gap} labels
 var _last_order: Array = []
 var _gap_next_ms := 0  # gap column refresh gate (audit: dirty-check, 4 Hz)
+var _hud_next_ms := 0  # per-frame HUD refresh gate (0.10.2, ~15 Hz)
 var _results_root: Control
 var _minimap: MiniMap
 var _cars: Array = []
@@ -177,6 +178,10 @@ func _init(
 
 
 func _process(_delta: float) -> void:
+	var now_ms := Time.get_ticks_msec()
+	if now_ms < _hud_next_ms:
+		return
+	_hud_next_ms = now_ms + 66
 	var speed_kmh := _car.linear_velocity.length() * 3.6
 	_speed_label.text = "%d" % int(speed_kmh)
 	_gear_label.text = "R" if _car.powertrain.gear == 0 else str(_car.powertrain.gear)

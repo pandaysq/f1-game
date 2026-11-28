@@ -22,6 +22,10 @@ const BODY_MID_Z := -0.155
 ## glb tire nodes are hidden: procedural wheels own suspension + steering.
 const BODY_TIRE_NODES := ["FR_Tire", "FL_Tire", "RR_Tire", "RL_Tire"]
 
+## Merged body ArrayMesh per livery color (0.10.2): an 8-car grid shares
+## 8 cached meshes instead of drawing ~24 small meshes per car.
+static var _body_mesh_cache: Dictionary = {}
+
 
 ## Creates a Car (RigidBody3D) with collision shape and visual meshes.
 ## livery: optional override of the red accents (AI field colors).
@@ -96,11 +100,10 @@ static func _build_body(visuals: Node3D, livery: Color) -> void:
 		# calibrate: measure the local AABB in visuals space, then shift so the
 		# body bottom and axle midpoint land on the physics reference points
 	var body: Node3D = packed.instantiate()
-	body.name = "Body"
+	body.name = "BodySource"
 	_set_visible_recursive(body, BODY_TIRE_NODES, false)
 	body.scale = Vector3.ONE * BODY_MODEL_SCALE
 	body.rotation.y = PI  # model faces +Z, car forward is -Z
-	visuals.add_child(body)
 
 	_tint_livery(body, livery)
 
@@ -109,7 +112,8 @@ static func _build_body(visuals: Node3D, livery: Color) -> void:
 	var aabb := _local_aabb(body)
 	var bottom := aabb.position.y
 	var mid_z := aabb.get_center().z
-	body.position = Vector3(-aabb.get_center().x, BODY_BOTTOM_Y - bottom, BODY_MID_Z - mid_z)
+	var offset := Vector3(-aabb.get_center().x, BODY_BOTTOM_Y - bottom, BODY_MID_Z - mid_z)
+	visuals.add_child(_merged_body(body, livery, offset))
 
 
 ## Livery: duplicate the imported (shared) materials per car and recolor the
@@ -136,6 +140,87 @@ static func _is_red_accent(mat: StandardMaterial3D) -> bool:
 		return true
 	var c := mat.albedo_color
 	return c.r > 0.5 and c.g < 0.3 and c.b < 0.3
+
+
+## Draw-call merge (0.10.2): rebuilds the imported body as ONE
+## MeshInstance with one surface per unique material (red accents
+## collapse into a single livery-colored material). Same pixels, a
+## fraction of the draw calls; cached per livery color.
+static func _merged_body(source: Node3D, livery: Color, offset: Vector3) -> MeshInstance3D:
+	var mesh: ArrayMesh = _body_mesh_cache.get(livery)
+	if mesh == null:
+		mesh = _bake_body_mesh(source, livery)
+		_body_mesh_cache[livery] = mesh
+	var mi := MeshInstance3D.new()
+	mi.name = "Body"
+	mi.mesh = mesh
+	var basis := Basis(Vector3.UP, PI) * Basis.from_scale(Vector3.ONE * BODY_MODEL_SCALE)
+	mi.transform = Transform3D(basis, offset)
+	return mi
+
+
+## Bakes all visible source surfaces into one ArrayMesh. Transforms are
+## folded relative to the source root; the root's own scale/rotation
+## stays on the merged node (see _merged_body).
+static func _bake_body_mesh(source: Node3D, livery: Color) -> ArrayMesh:
+	var entries: Array = []  # [mesh, surface_index, Transform3D]
+	var stack: Array = [[source, Transform3D()]]
+	while not stack.is_empty():
+		var entry: Array = stack.pop_back()
+		var n: Node = entry[0]
+		var xf: Transform3D = entry[1]
+		if n is Node3D and n != source:
+			xf = xf * (n as Node3D).transform
+		var mi := n as MeshInstance3D
+		if mi != null and mi.mesh != null and mi.visible:
+			for s in range(mi.mesh.get_surface_count()):
+				entries.append([mi.mesh, s, xf])
+		for c in n.get_children():
+			stack.append([c, xf])
+	var groups: Dictionary = {}  # material key -> {st: SurfaceTool, mat: Material}
+	var order: Array = []  # group keys in first-seen order
+	for e in entries:
+		var mesh: Mesh = e[0]
+		var s: int = e[1]
+		var mat := mesh.surface_get_material(s)
+		var key := "__livery__"
+		if not (mat is StandardMaterial3D and _is_red_accent(mat as StandardMaterial3D)):
+			key = str(mat.get_instance_id() if mat != null else 0)
+		if not groups.has(key):
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			var gmat: Material = mat
+			if key == "__livery__":
+				gmat = _livery_material(mat, livery)
+			elif gmat == null:
+				# some imported primitives carry no material; never feed the
+				# renderer a null surface material
+				gmat = StandardMaterial3D.new()
+			groups[key] = {"st": st, "mat": gmat}
+			order.append(key)
+		(groups[key]["st"] as SurfaceTool).append_from(mesh, s, e[2])
+	var out := ArrayMesh.new()
+	var index := 0
+	for key in order:
+		var g: Dictionary = groups[key]
+		var committed: ArrayMesh = (g["st"] as SurfaceTool).commit()
+		if committed == null:
+			continue
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, committed.surface_get_arrays(0))
+		out.surface_set_material(index, g["mat"])
+		index += 1
+	return out
+
+
+## Fresh tinted material for the collapsed red-accent surfaces.
+static func _livery_material(base: Material, livery: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	if base is StandardMaterial3D:
+		var src := base as StandardMaterial3D
+		m.roughness = src.roughness
+		m.metallic = src.metallic
+	m.albedo_color = livery
+	return m
 
 
 ## Hides any Node3D whose name is in the list (recursive).

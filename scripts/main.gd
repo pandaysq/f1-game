@@ -44,6 +44,9 @@ var ghost_car: GhostCar
 var ghost_recorder := GhostRecorder.new()
 var rain_fx: RainFx
 var weather_kind := "dry"
+var _race_states: Array = []  # dict pool reused per tick (no churn at 120 Hz)
+var _fps_label: Label = null  # always-on FPS chip (Settings.show_fps)
+var _fps_next_ms := 0
 
 var _mode := "race"
 var _countdown_left := 0.0
@@ -65,6 +68,15 @@ var _shot_timer := 0.0
 var _trace_left := 0.0
 var _trace_timer := 0.0
 var _trace_elapsed := 0.0
+
+# Dev perf hook: APEX_BENCH=<seconds> samples frame wall time + script
+# timings, prints a scene census and quits. QA only (headless runs).
+var _bench_left := 0.0
+var _bench_last_usec := 0
+var _bench_phys_start := 0
+var _bench_samples: Array[float] = []
+var _bench_phys_samples: Array[float] = []
+var _bench_proc_samples: Array[float] = []
 
 @onready var debug_overlay: CanvasLayer = $DebugOverlay
 
@@ -92,6 +104,9 @@ func _ready() -> void:
 		_add_environment()
 	track_limits.cut_committed.connect(_on_cut_committed)
 	track_limits.lap_invalidated.connect(_on_lap_invalidated)
+	# Perf (0.10.2): scenery and road receive shadows but never cast them;
+	# runs before cars exist, so car meshes stay shadow casters.
+	_disable_scenery_shadow_casting()
 
 	if _mode == "tt":
 		_setup_time_trial()
@@ -103,6 +118,43 @@ func _ready() -> void:
 	for light in _find_all(self, "DirectionalLight3D"):
 		(light as DirectionalLight3D).directional_shadow_max_distance = shadow_dist
 	debug_overlay.visible = OS.get_environment("APEX_DEBUG") == "1"
+	if Settings.show_fps:
+		_fps_label = Label.new()
+		_fps_label.text = "-- FPS"
+		_fps_label.add_theme_font_size_override("font_size", 16)
+		_fps_label.modulate = Color(1, 1, 1, 0.75)
+		_fps_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		_fps_label.offset_left = -140.0
+		_fps_label.offset_right = -16.0
+		_fps_label.offset_top = 10.0
+		_fps_label.offset_bottom = 34.0
+		_fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		add_child(_fps_label)
+	if Settings.show_fps:
+		_fps_label = Label.new()
+		_fps_label.text = "-- FPS"
+		_fps_label.add_theme_font_size_override("font_size", 16)
+		_fps_label.modulate = Color(1, 1, 1, 0.75)
+		_fps_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		_fps_label.offset_left = -140.0
+		_fps_label.offset_right = -16.0
+		_fps_label.offset_top = 10.0
+		_fps_label.offset_bottom = 34.0
+		_fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		add_child(_fps_label)
+	if Settings.show_fps:
+		_fps_label = Label.new()
+		_fps_label.text = "-- FPS"
+		_fps_label.add_theme_font_size_override("font_size", 16)
+		_fps_label.modulate = Color(1, 1, 1, 0.75)
+		_fps_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		_fps_label.offset_left = -140.0
+		_fps_label.offset_right = -16.0
+		_fps_label.offset_top = 10.0
+		_fps_label.offset_bottom = 34.0
+		_fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		add_child(_fps_label)
+	_init_bench_hook()
 	_init_screenshot_hook()
 	if OS.get_environment("APEX_FAKE_RESULT") == "1" and race_hud != null:
 		_fake_race_result()
@@ -222,6 +274,13 @@ func _setup_race() -> void:
 			drivers.append(driver)
 			driver.reset_requested.connect(_on_ai_reset.bind(driver))
 	cars[0].compound = TyreCompound.sanitize(str(Settings.race.get("tyre", "slick")))
+	for j in range(cars.size()):
+		var st: Dictionary = {
+			"pos": cars[j].global_transform.origin,
+			"forward": -cars[j].global_transform.basis.z,
+			"speed": 0.0,
+		}
+		_race_states.append(st)
 	camera_rig = CameraRig.new(cars[0])
 	add_child(camera_rig)
 	camera_rig.cockpit_camera.current = true
@@ -333,19 +392,12 @@ func _update_race(delta: float) -> void:
 				"shift_up": false,
 				"shift_down": false,
 			}
-	var states: Array = []
-	for car in cars:
-		(
-			states
-			. append(
-				{
-					"pos": car.global_transform.origin,
-					"forward": -car.global_transform.basis.z,
-					"speed": car.linear_velocity.length(),
-				}
-			)
-		)
-	session.update(states, TICK_DT)
+	for i in range(cars.size()):
+		var state: Dictionary = _race_states[i]
+		state["pos"] = cars[i].global_transform.origin
+		state["forward"] = -cars[i].global_transform.basis.z
+		state["speed"] = cars[i].linear_velocity.length()
+	session.update(_race_states, TICK_DT)
 
 	for i in range(cars.size()):
 		cars[i].aero_wake_df = session.wake_df(i)
@@ -536,6 +588,23 @@ func _on_camera_mode_changed(label: String) -> void:
 
 
 func _process(delta: float) -> void:
+	if _bench_left > 0.0:
+		_bench_tick(delta)
+	if _fps_label != null:
+		var now_ms := Time.get_ticks_msec()
+		if now_ms >= _fps_next_ms:
+			_fps_next_ms = now_ms + 500
+			_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
+	if _fps_label != null:
+		var now_ms := Time.get_ticks_msec()
+		if now_ms >= _fps_next_ms:
+			_fps_next_ms = now_ms + 500
+			_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
+	if _fps_label != null:
+		var now_ms := Time.get_ticks_msec()
+		if now_ms >= _fps_next_ms:
+			_fps_next_ms = now_ms + 500
+			_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
 	if _trace_left > 0.0:
 		_trace_left -= delta
 		_trace_timer += delta
@@ -748,3 +817,161 @@ func _reset_car() -> void:
 	var basis := TrackBuilder.alignment_basis(dir)
 	var origin := track.points[best_index] + Vector3.UP * 0.6
 	cars[0].reset_to(Transform3D(basis, origin))
+
+
+## Dev perf hook: APEX_BENCH=<seconds> (QA only). Optional APEX_TICKS=<n>
+## overrides Engine.physics_ticks_per_second so one binary A/B's tick rates.
+func _init_bench_hook() -> void:
+	var bench := OS.get_environment("APEX_BENCH")
+	if bench.is_empty():
+		return
+	_bench_left = maxf(bench.to_float(), 1.0)
+	_bench_phys_start = Engine.get_physics_frames()
+	var ticks := OS.get_environment("APEX_TICKS")
+	if not ticks.is_empty() and ticks.is_valid_int():
+		Engine.physics_ticks_per_second = maxi(ticks.to_int(), 30)
+	print("[bench] start: %ss, ticks/s=%d" % [bench, Engine.physics_ticks_per_second])
+
+
+func _bench_tick(delta: float) -> void:
+	var now := Time.get_ticks_usec()
+	if _bench_last_usec > 0:
+		_bench_samples.append(float(now - _bench_last_usec) / 1000.0)
+		_bench_phys_samples.append(
+			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+		)
+		_bench_proc_samples.append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
+	_bench_last_usec = now
+	_bench_left -= delta
+	if _bench_left <= 0.0:
+		_bench_report()
+		_bench_census()
+		get_tree().quit()
+
+
+func _bench_report() -> void:
+	if _bench_samples.is_empty():
+		return
+	var wall := _bench_samples.duplicate()
+	wall.sort()
+	var phys := _bench_phys_samples.duplicate()
+	phys.sort()
+	var proc := _bench_proc_samples.duplicate()
+	proc.sort()
+	var frames := wall.size()
+	var ticks_done := Engine.get_physics_frames() - _bench_phys_start
+	print(
+		(
+			"[bench] frames=%d wall_ms avg=%.2f p50=%.2f p95=%.2f max=%.2f"
+			% [frames, _avg(_bench_samples), _pct(wall, 0.5), _pct(wall, 0.95), wall[frames - 1]]
+		)
+	)
+	print(
+		(
+			"[bench] script_ms phys avg=%.2f p95=%.2f | proc avg=%.2f p95=%.2f | physics_frames=%d"
+			% [
+				_avg(_bench_phys_samples),
+				_pct(phys, 0.95),
+				_avg(_bench_proc_samples),
+				_pct(proc, 0.95),
+				ticks_done,
+			]
+		)
+	)
+
+
+func _avg(samples: Array[float]) -> float:
+	var total := 0.0
+	for s in samples:
+		total += s
+	return total / maxf(float(samples.size()), 1.0)
+
+
+func _pct(sorted_samples: Array[float], p: float) -> float:
+	var idx := clampi(int(float(sorted_samples.size()) * p), 0, sorted_samples.size() - 1)
+	return sorted_samples[idx]
+
+
+## Scene census: worst-case draw-call pressure (visible surfaces), shadow
+## pass load (casters), vertex load, light/particle/static-body counts and a
+## per-top-level-group surface breakdown. Printed once at bench end.
+func _bench_census() -> void:
+	var stack: Array[Node] = [self]
+	var nodes := 0
+	var mi_total := 0
+	var surfaces := 0
+	var tris := 0
+	var casters := 0
+	var lights := 0
+	var shadow_lights := 0
+	var particle_amount := 0
+	var static_bodies := 0
+	var concave_shapes := 0
+	var groups := {}
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		nodes += 1
+		if n is MeshInstance3D:
+			var mi := n as MeshInstance3D
+			if mi.mesh != null and mi.visible:
+				mi_total += 1
+				var sc := mi.mesh.get_surface_count()
+				surfaces += sc
+				for s in range(sc):
+					var arrays := mi.mesh.surface_get_arrays(s)
+					if arrays[Mesh.ARRAY_VERTEX] != null:
+						tris += (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
+				if mi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+					casters += 1
+				var key := _bench_group_key(mi)
+				groups[key] = int(groups.get(key, 0)) + sc
+		elif n is Light3D:
+			lights += 1
+			if (n as Light3D).shadow_enabled:
+				shadow_lights += 1
+		elif n is GPUParticles3D:
+			particle_amount += (n as GPUParticles3D).amount
+		elif n is StaticBody3D:
+			static_bodies += 1
+			for child in n.get_children():
+				var shape := child as CollisionShape3D
+				if shape != null and shape.shape is ConcavePolygonShape3D:
+					concave_shapes += 1
+		for child in n.get_children():
+			stack.append(child)
+	print(
+		(
+			"[census] nodes=%d mesh_instances=%d surfaces=%d casters=%d tris=%d"
+			% [nodes, mi_total, surfaces, casters, tris]
+		)
+	)
+	print(
+		(
+			"[census] lights=%d shadow_lights=%d particles=%d static_bodies=%d concave=%d"
+			% [lights, shadow_lights, particle_amount, static_bodies, concave_shapes]
+		)
+	)
+	for key in groups.keys():
+		print("[census] group %s surfaces=%d" % [key, groups[key]])
+
+
+## Turns shadow casting off for every MeshInstance3D in the scenery and
+## the generated track (they only receive shadows). Runs before cars
+## exist, so car meshes stay casters. QA census 0.10.2: casters
+## 328 -> ~90 on a full grid.
+func _disable_scenery_shadow_casting() -> void:
+	var stack: Array[Node] = [self]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D:
+			(n as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		for child in n.get_children():
+			stack.append(child)
+
+
+## Name of the top-level ancestor under the main scene (car / scenery / track).
+func _bench_group_key(node: Node) -> String:
+	var cur := node
+	while cur.get_parent() != null and cur.get_parent() != self:
+		cur = cur.get_parent()
+	return cur.name
