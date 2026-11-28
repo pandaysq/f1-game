@@ -18,6 +18,7 @@ var race_time: float = 0.0
 var started := false  # green flag
 
 var progress: Array[float] = []  # 0..1 around the lap
+var speeds: Array[float] = []  # last fed speed per car (m/s) — interval timing
 var laps_completed: Array[int] = []
 var laps_started: Array[bool] = []  # crossed the line since the grid
 var lap_start_time: Array[float] = []
@@ -68,6 +69,8 @@ func _init(p_track: TrackData, p_config: Dictionary, p_car_count: int) -> void:
 	_drs_available.fill(false)
 	_cars_ahead.resize(car_count)
 	_cars_ahead.fill(-1)
+	speeds.resize(car_count)
+	speeds.fill(0.0)
 
 
 ## Grid transforms: two-wide rows behind the start line, 8 m per row,
@@ -127,6 +130,7 @@ func update(car_states: Array, delta: float) -> void:
 	for i in range(count):
 		var state: Dictionary = car_states[i]
 		_track_car(i, state.get("pos", Vector3.ZERO) as Vector3, delta)
+		speeds[i] = float(state.get("speed", 0.0))
 	_update_wakes(car_states)
 	_update_ahead()
 	_update_drs(car_states)
@@ -268,6 +272,41 @@ func _distance_ahead(ahead: int, i: int) -> float:
 	if laps_completed[ahead] > laps_completed[i]:
 		delta -= 1.0
 	return clampf(delta, 0.0, 1.0) * lap_len
+
+
+## Live interval to the car directly ahead in race order, seconds (0.10.0
+## tower). The race leader and single-car sessions return 0. Both finished:
+## exact finish-time delta; otherwise distance over the follower's speed
+## (same estimate the DRS gap uses).
+func interval_ahead_s(rank: int) -> float:
+	var order := positions()
+	if rank <= 0 or rank >= order.size():
+		return 0.0
+	var i: int = order[rank]
+	var ahead: int = order[rank - 1]
+	if finished[i] and finished[ahead]:
+		return maxf(finish_time[i] - finish_time[ahead], 0.0)
+	var dist_m := _race_distance(ahead) - _race_distance(i)
+	return maxf(dist_m, 0.0) / maxf(float(speeds[i]), 5.0)
+
+
+## Continuous race distance (completed laps + current progress) in meters —
+## the interval clock's yardstick. Unlike the raw progress delta it does
+## not wrap when a car crosses the start/finish line mid-pack.
+func _race_distance(i: int) -> float:
+	return (float(laps_completed[i]) + clampf(progress[i], 0.0, 1.0)) * track.lap_length()
+
+
+## Full laps car i trails the race leader (0 = on the lead lap). Distance
+## based (continuous race distance / lap length): a crossing-count diff
+## flickers — while the leader's lap fraction is below the follower's it
+## reads one lap more than reality (bounty-hunt fix, 0.10.0).
+func laps_behind(i: int) -> int:
+	var order := positions()
+	if order.is_empty():
+		return 0
+	var gap_m := _race_distance(order[0]) - _race_distance(i)
+	return maxi(0, int(floor(gap_m / track.lap_length())))
 
 
 func _update_ahead() -> void:

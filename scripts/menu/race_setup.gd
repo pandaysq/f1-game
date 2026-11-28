@@ -1,7 +1,9 @@
 class_name RaceSetupPanel
 extends Control
 ## Pre-race setup screen (0.6.0): track choice (Settings.TRACKS), lap count
-## and AI difficulty. Selections persist via Settings.race. The START button
+## and AI difficulty; races add tyre compound + weather (0.10.0). Time
+## Trial stays dry so lap records stay comparable. Selections persist via
+## Settings.race. The START button
 ## launches scenes/main.tscn with the launch mode chosen in the menu
 ## ("race" shows laps + difficulty, "tt" hides them).
 
@@ -9,6 +11,8 @@ var _mode: String
 var _track_buttons: Dictionary = {}
 var _lap_buttons: Dictionary = {}
 var _level_buttons: Dictionary = {}
+var _tyre_buttons: Dictionary = {}
+var _weather_buttons: Dictionary = {}
 
 
 func _init(launch_mode: String) -> void:
@@ -66,6 +70,26 @@ func _init(launch_mode: String) -> void:
 				_pick_level,
 				str(Settings.race.get("difficulty", "pro")),
 				130.0
+			)
+		)
+		box.add_child(
+			_section_block(
+				"TYRES",
+				Settings.TYRE_COMPOUNDS,
+				_tyre_buttons,
+				_pick_tyre,
+				str(Settings.race.get("tyre", "slick")),
+				110.0
+			)
+		)
+		box.add_child(
+			_section_block(
+				"WEATHER",
+				Settings.WEATHER_TYPES,
+				_weather_buttons,
+				_pick_weather,
+				str(Settings.race.get("weather", "dry")),
+				110.0
 			)
 		)
 
@@ -172,3 +196,19 @@ func _pick_level(level: String) -> void:
 	Settings.race["difficulty"] = level
 	Settings.save_settings()
 	_sync_buttons(_level_buttons, level)
+
+
+func _pick_tyre(compound: String) -> void:
+	var compound_id := TyreCompound.sanitize(compound)
+	Sfx.select()
+	Settings.race["tyre"] = compound_id
+	Settings.save_settings()
+	_sync_buttons(_tyre_buttons, compound_id)
+
+
+func _pick_weather(kind: String) -> void:
+	var kind_id := WeatherState.sanitize(kind)
+	Sfx.select()
+	Settings.race["weather"] = kind_id
+	Settings.save_settings()
+	_sync_buttons(_weather_buttons, kind_id)

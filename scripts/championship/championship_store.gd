@@ -7,7 +7,9 @@ extends RefCounted
 ## round is appended to the league ResultsStore (seasons / points / standings
 ## were built for Phase 3 and are reused as the results backend).
 ##
-## Calendar: track ids cycle over the catalog passed to new_season(). Points:
+## Calendar: track ids cycle over the catalog passed to new_season(); each
+## round gets a deterministic weather kind (0.10.0, seeded by the season
+## key — the same season always shows the same forecast). Points:
 ## standard F1 table via ResultsStore. Driver names are fictional and stable
 ## per season. A finished season stays visible until a new one is started or
 ## the old one is abandoned.
@@ -68,13 +70,15 @@ func new_season(rounds: int, difficulty: String, laps: int, catalog: Array) -> b
 		schedule.append(ids[i % ids.size()])
 	if not DIFFICULTIES.has(difficulty):
 		difficulty = "pro"
+	var season_key := _next_season_key()
 	var state := {
 		"schedule": schedule,
 		"round": 0,
 		"difficulty": difficulty,
 		"laps": clampi(laps, 1, 99),
 		"names": _grid_names(),
-		"season_key": _next_season_key(),
+		"season_key": season_key,
+		"weather": WeatherState.season_calendar(season_key, count),
 		"done": false,
 		"created": Time.get_date_string_from_system(),
 	}
@@ -91,11 +95,16 @@ func next_round() -> Dictionary:
 	var round_index := int(state.get("round", 0))
 	if round_index < 0 or round_index >= schedule.size():
 		return {}
+	var weather: Array = state.get("weather", [])
+	var kind := WeatherState.DEFAULT_TYPE
+	if round_index < weather.size():
+		kind = WeatherState.sanitize(str(weather[round_index]))
 	return {
 		"index": round_index,
 		"track_id": str(schedule[round_index]),
 		"laps": int(state.get("laps", 5)),
 		"difficulty": str(state.get("difficulty", "pro")),
+		"weather": kind,
 	}
 
 

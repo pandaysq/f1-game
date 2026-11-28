@@ -49,6 +49,13 @@ var wheel_vf: Array[float] = [0.0, 0.0, 0.0, 0.0]
 # Kerb rumble intensity 0..1 (smoothed); main.gd maps it to camera shake.
 var kerb_level := 0.0
 
+## Weather (0.10.0): tyre compound ("slick" / "inter" / "wet") and the
+## track wetness 0..1. Both default to the untouched 0.9.0 physics
+## (slick on a dry track = multiplier exactly 1.0). Race setup / main
+## sets them per race; TyreCompound turns them into grip / wear factors.
+var compound: String = TyreCompound.DEFAULT_COMPOUND
+var track_wetness := 0.0
+
 # dynamic (relaxation-length) slip states per wheel
 var _slip_lon_state: Array[float] = [0.0, 0.0, 0.0, 0.0]
 var _slip_lat_state: Array[float] = [0.0, 0.0, 0.0, 0.0]
@@ -307,6 +314,7 @@ func _step_wheels(input: Dictionary) -> void:
 		# tire wear (0.7.0): slip energy under load eats grip over a race;
 		# the wear factor multiplies the surface friction per wheel
 		var surface_mu := _surface_grip(i) * wear_grip_factor(_wear[i], _tires)
+		surface_mu *= TyreCompound.grip(compound, track_wetness, _tires)
 		var fx := TireModel.longitudinal_force(fz, slip_ratio, surface_mu, _tires)
 		var fy := -TireModel.lateral_force(fz, slip_angle, surface_mu, _tires)
 		var combined := TireModel.combine(fx, fy, fz, surface_mu)
@@ -314,7 +322,15 @@ func _step_wheels(input: Dictionary) -> void:
 		fy = combined.y
 		wheel_fx[i] = fx
 		wheel_vf[i] = v_forward
-		_wear[i] = wear_step(_wear[i], fz, slip_ratio, slip_angle, TICK_DT, _tires)
+		_wear[i] = wear_step(
+			_wear[i],
+			fz,
+			slip_ratio,
+			slip_angle,
+			TICK_DT,
+			_tires,
+			TyreCompound.wear_mult(compound, track_wetness, _tires),
+		)
 
 		var axle_bias := bias if _front_mask[i] else 1.0 - bias
 		var this_brake := brake_torque * axle_bias * 0.5
@@ -423,14 +439,20 @@ static func rolling_resistance(fz: float, v_forward: float, coeff: float) -> flo
 ## wear_rate_per_s calibrates the pace; wear_slip_weight makes sliding
 ## tires (lockups, big slides) wear much faster than loaded rolling ones.
 static func wear_step(
-	wear: float, fz: float, slip_ratio: float, slip_angle: float, delta: float, tires: Dictionary
+	wear: float,
+	fz: float,
+	slip_ratio: float,
+	slip_angle: float,
+	delta: float,
+	tires: Dictionary,
+	rate_mult: float = 1.0,
 ) -> float:
 	var rate := float(tires.get("wear_rate_per_s", 0.00035))
 	var slip_weight := float(tires.get("wear_slip_weight", 5.0))
 	var nominal := maxf(float(tires.get("nominal_load_n", 2000.0)), 1.0)
 	var load := clampf(fz / nominal, 0.0, 3.0)
 	var slip_mag := absf(slip_ratio) + absf(slip_angle)
-	var next_wear := wear + delta * rate * load * (0.5 + slip_mag * slip_weight)
+	var next_wear := wear + delta * rate * rate_mult * load * (0.5 + slip_mag * slip_weight)
 	return clampf(next_wear, 0.0, 1.0)
 
 

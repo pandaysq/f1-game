@@ -14,6 +14,8 @@ var _lap_choices: Array = []  # Settings.LAP_CHOICES
 var _level_choices: Array = []  # Settings.AI_LEVELS
 
 var _round_buttons: Dictionary = {}
+var _tyre_buttons: Dictionary = {}
+var _tyre_current := TyreCompound.DEFAULT_COMPOUND
 var _lap_buttons: Dictionary = {}
 var _level_buttons: Dictionary = {}
 var _picked_round := 4
@@ -34,6 +36,12 @@ func setup_catalog(catalog: Array, lap_choices: Array, level_choices: Array) -> 
 	_catalog = catalog
 	_lap_choices = lap_choices
 	_level_choices = level_choices
+
+
+## Current player compound for the YOUR TYRES row (injected by main_menu
+## from Settings.race — the panel itself stays autoload-free).
+func setup_tyres(current: String) -> void:
+	_tyre_current = TyreCompound.sanitize(current)
 
 
 ## Replaces the default store (headless checks inject a temp-path instance
@@ -64,6 +72,7 @@ func rebuild(keep_confirm: bool = false) -> void:
 	_round_buttons.clear()
 	_lap_buttons.clear()
 	_level_buttons.clear()
+	_tyre_buttons.clear()
 
 	var dim := ColorRect.new()
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -133,10 +142,21 @@ func _build_active(box: VBoxContainer, state: Dictionary, round_info: Dictionary
 	columns.add_child(right)
 
 	left.add_child(_section("CALENDAR"))
+	var weather: Array = state.get("weather", [])
 	for i in range(schedule.size()):
-		left.add_child(
-			_schedule_row(
-				i, str(schedule[i]), _store.player_results(), i == int(round_info.get("index", 0))
+		var kind := WeatherState.DEFAULT_TYPE
+		if i < weather.size():
+			kind = WeatherState.sanitize(str(weather[i]))
+		(
+			left
+			. add_child(
+				_schedule_row(
+					i,
+					str(schedule[i]),
+					kind,
+					_store.player_results(),
+					i == int(round_info.get("index", 0)),
+				)
 			)
 		)
 	right.add_child(_section("STANDINGS"))
@@ -146,6 +166,16 @@ func _build_active(box: VBoxContainer, state: Dictionary, round_info: Dictionary
 	for i in range(table.size()):
 		right.add_child(_standing_row(i, table[i]))
 
+	box.add_child(
+		_choice_row("YOUR TYRES", TyreCompound.COMPOUNDS, _tyre_buttons, _pick_tyre, _tyre_current)
+	)
+	var round_kind := WeatherState.sanitize(str(round_info.get("weather", "dry")))
+	var weather_row := HBoxContainer.new()
+	weather_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	weather_row.add_theme_constant_override("separation", 10)
+	weather_row.add_child(UiIcons.icon(WeatherState.icon(round_kind), 18, Color(0.62, 0.72, 0.92)))
+	weather_row.add_child(_cell(WeatherState.label(round_kind), 16, F1Theme.TEXT_DIM))
+	box.add_child(weather_row)
 	box.add_child(_spacer(2))
 	var start_label := "START ROUND %d" % (int(round_info.get("index", 0)) + 1)
 	var start := F1Theme.button(start_label, 24, Vector2(560, 50))
@@ -214,6 +244,12 @@ func _pick_level(value: String) -> void:
 	_picked_level = value
 
 
+func _pick_tyre(value: String) -> void:
+	_tyre_current = TyreCompound.sanitize(value)
+	Settings.race["tyre"] = _tyre_current
+	Settings.save_settings()
+
+
 func _start_season() -> void:
 	if _store.new_season(_picked_round, _picked_level, _picked_laps, _catalog):
 		Sfx.open()
@@ -227,6 +263,7 @@ func _start_round() -> void:
 	Settings.race["track"] = str(round_info.get("track_id", Settings.DEFAULT_TRACK))
 	Settings.race["laps"] = int(round_info.get("laps", 5))
 	Settings.race["difficulty"] = str(round_info.get("difficulty", "pro"))
+	Settings.race["weather"] = WeatherState.sanitize(str(round_info.get("weather", "dry")))
 	Settings.launch_mode = "championship"
 	Settings.save_settings()
 	Sfx.select()
@@ -338,7 +375,9 @@ func _choice_row(
 
 ## Ri  track  P2 +18  /  NEXT  /  LOCKED — history entries are ordered by
 ## round (player_results appends per finished round), so index is the key.
-func _schedule_row(index: int, track_id: String, history: Array, is_next: bool) -> PanelContainer:
+func _schedule_row(
+	index: int, track_id: String, weather_kind: String, history: Array, is_next: bool
+) -> PanelContainer:
 	var player := {}
 	var done := index < history.size()
 	if done:
@@ -355,6 +394,20 @@ func _schedule_row(index: int, track_id: String, history: Array, is_next: bool) 
 	panel.add_child(row)
 	row.add_child(_cell("R%d" % (index + 1), 18, F1Theme.TEXT_DIM))
 	row.add_child(_cell(_track_name(track_id), 18, Color.WHITE))
+	var wet := WeatherState.wetness(weather_kind)
+	(
+		row
+		. add_child(
+			(
+				UiIcons
+				. icon(
+					WeatherState.icon(weather_kind),
+					15,
+					Color(0.62, 0.72, 0.92) if wet > 0.0 else F1Theme.TEXT_DIM,
+				)
+			)
+		)
+	)
 	var status := "LOCKED"
 	var status_color := F1Theme.TEXT_DIM
 	if done:

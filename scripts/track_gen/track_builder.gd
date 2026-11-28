@@ -406,6 +406,29 @@ static func _add_quad(
 			st.add_vertex(corners[idx])
 
 
+## Wet-road look (0.10.0): finds the generated asphalt ribbon by its
+## albedo color and darkens / polishes it. The imported diorama owns its
+## road texture and is left alone. Called once per wet race setup.
+static func apply_wetness(root: Node3D, wetness: float) -> void:
+	if wetness <= 0.0:
+		return
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		for child in node.get_children():
+			stack.append(child)
+		var mi := node as MeshInstance3D
+		if mi == null or not (mi.material_override is StandardMaterial3D):
+			continue
+		var mat := mi.material_override as StandardMaterial3D
+		if not mat.albedo_color.is_equal_approx(COLOR_ASPHALT):
+			continue
+		var wet := clampf(wetness, 0.0, 1.0)
+		mat.albedo_color = COLOR_ASPHALT.lerp(Color(0.05, 0.06, 0.09), wet * 0.9)
+		mat.roughness = maxf(0.95 - 0.6 * wet, 0.15)
+		mat.metallic = 0.25 * wet
+
+
 static func _mesh_instance(
 	mesh: Mesh, albedo: Color, roughness: float, use_vertex_color: bool = false
 ) -> MeshInstance3D:

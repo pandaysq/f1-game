@@ -22,6 +22,11 @@ const DEFAULT_TRACK := "endurance_run"
 const LAP_CHOICES := [3, 5, 8]
 const AI_LEVELS := ["rookie", "pro", "legend"]
 
+## Weather kinds and tyre compounds (0.10.0), setup-screen choices.
+## Values mirror WeatherState.TYPES / TyreCompound.COMPOUNDS.
+const WEATHER_TYPES := ["dry", "light", "heavy"]
+const TYRE_COMPOUNDS := ["slick", "inter", "wet"]
+
 ## Assist flags. All individual toggles per master prompt section 4.
 ## Defaults chosen for a new player: forgiving but honest physics.
 var assists: Dictionary = {
@@ -40,7 +45,15 @@ var quality: String = "medium"
 var volumes: Dictionary = {"master": 0.85, "music": 0.55, "sfx": 1.0}
 
 ## Race setup selections (0.6.0): track id, lap count, AI difficulty level.
-var race: Dictionary = {"track": DEFAULT_TRACK, "laps": 5, "difficulty": "pro"}
+## 0.10.0 adds the player tyre compound and the weather kind (races only —
+## Time Trial always stays dry so lap records stay comparable).
+var race: Dictionary = {
+	"track": DEFAULT_TRACK,
+	"laps": 5,
+	"difficulty": "pro",
+	"tyre": "slick",
+	"weather": "dry",
+}
 
 ## Haptic feedback on touch devices (crash, nitro pulse, green flag).
 var vibration: bool = true
@@ -95,6 +108,10 @@ func load_settings() -> void:
 		race["laps"] = 5
 	if not (str(race.get("difficulty", "pro")) in AI_LEVELS):
 		race["difficulty"] = "pro"
+	if not WeatherState.is_valid(str(race.get("weather", "dry"))):
+		race["weather"] = WeatherState.DEFAULT_TYPE
+	if not TyreCompound.is_valid(str(race.get("tyre", "slick"))):
+		race["tyre"] = TyreCompound.DEFAULT_COMPOUND
 	vibration = bool(cf.get_value("game", "vibration", vibration))
 
 

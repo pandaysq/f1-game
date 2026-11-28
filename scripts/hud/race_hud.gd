@@ -1,7 +1,8 @@
 class_name RaceHud
 extends CanvasLayer
 ## Race HUD (0.9.0 restyle): F1-TV-look UI — position tower with the driver
-## tag chip, DRS badge and tyre icon row, speed+gear strip, live standings
+## tag chip, DRS badge, tyre icon row, compound + weather chips (0.10.0),
+## speed+gear strip, live standings
 ## tower with per-driver bar colors and 3-letter tags, start lights, icon
 ## flash messages and a proper race-result screen. "///" text separators and
 ## AI<N> labels are gone: DriverRoster names every grid slot, F1Theme.sep
@@ -13,6 +14,7 @@ var start_lights: StartLights
 var _car: Car
 var _session: RaceSession
 var _car_index := 0
+var _weather := "dry"
 
 var _pos_label: Label
 var _lap_label: Label
@@ -36,10 +38,16 @@ var _minimap: MiniMap
 var _cars: Array = []
 
 
-func _init(car: Car, session: RaceSession, car_index: int) -> void:
+func _init(
+	car: Car,
+	session: RaceSession,
+	car_index: int,
+	weather: String = WeatherState.DEFAULT_TYPE,
+) -> void:
 	_car = car
 	_session = session
 	_car_index = car_index
+	_weather = weather
 
 	# top-left tower: position + driver tag / lap / DRS badge + tyre
 	var tower := PanelContainer.new()
@@ -92,6 +100,12 @@ func _init(car: Car, session: RaceSession, car_index: int) -> void:
 	_tyre_label = _styled_label(16, "semibold", F1Theme.TEXT_DIM)
 	_tyre_label.text = "100%"
 	tyre_row.add_child(_tyre_label)
+	status_row.add_child(_compound_chip())
+	status_row.add_child(UiIcons.icon(WeatherState.icon(_weather), 16, Color(0.62, 0.72, 0.92)))
+	var weather_label := _styled_label(13, "semibold", F1Theme.TEXT_DIM)
+	weather_label.text = WeatherState.label(_weather)
+	weather_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	status_row.add_child(weather_label)
 
 	# bottom-left strip: speed + gear
 	var strip := PanelContainer.new()
@@ -228,7 +242,37 @@ func _update_standings() -> void:
 		if row.is_empty():
 			continue
 		(row["pos"] as Label).text = "P%d" % (rank + 1)
-		(row["gap"] as Label).text = "L%d" % int(_session.laps_completed[i])
+		(row["gap"] as Label).text = _gap_text(i, rank)
+
+
+## Broadcast gap column (0.10.0): LEADER on P1, "L2" when laps down,
+## otherwise the live interval to the car directly ahead.
+func _gap_text(car_index: int, rank: int) -> String:
+	if rank == 0:
+		return "LEADER"
+	var behind := _session.laps_behind(car_index)
+	if behind > 0:
+		return "L%d" % behind
+	return "+%.1f" % _session.interval_ahead_s(rank)
+
+
+## Tyre compound chip: broadcast-colored single letter (S red, I green,
+## W blue). Static per race — compounds are a setup-screen decision.
+func _compound_chip() -> PanelContainer:
+	var chip := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = TyreCompound.color(_car.compound)
+	style.skew = Vector2(-0.35, 0)
+	style.content_margin_left = 10.0
+	style.content_margin_right = 10.0
+	style.content_margin_top = 2.0
+	style.content_margin_bottom = 2.0
+	chip.add_theme_stylebox_override("panel", style)
+	chip.tooltip_text = TyreCompound.label(_car.compound)
+	var letter := _styled_label(16, "black", F1Theme.DARK)
+	letter.text = TyreCompound.letter(_car.compound)
+	chip.add_child(letter)
+	return chip
 
 
 func _rebuild_standings(order: Array) -> void:

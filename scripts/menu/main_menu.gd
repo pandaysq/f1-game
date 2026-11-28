@@ -40,6 +40,7 @@ func _ready() -> void:
 	add_child(_career_panel)
 	_champ_panel = ChampionshipPanel.new()
 	_champ_panel.setup_catalog(Settings.TRACKS, Settings.LAP_CHOICES, Settings.AI_LEVELS)
+	_champ_panel.setup_tyres(str(Settings.race.get("tyre", "slick")))
 	add_child(_champ_panel)
 	# QA hooks: capture a specific panel instead of the plain menu
 	var view := OS.get_environment("APEX_SHOT_VIEW")
@@ -171,7 +172,7 @@ func _add_buttons() -> void:
 
 func _add_footer() -> void:
 	var version := Label.new()
-	version.text = "APEX GP  v0.9.0"
+	version.text = "APEX GP  v0.10.0"
 	version.add_theme_font_override("font", F1Theme.font("bold"))
 	version.add_theme_font_size_override("font_size", 16)
 	version.add_theme_color_override("font_color", F1Theme.TEXT_DIM)

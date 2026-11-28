@@ -42,6 +42,8 @@ var nitro_fx: NitroFx
 var track_limits := TrackLimits.new()
 var ghost_car: GhostCar
 var ghost_recorder := GhostRecorder.new()
+var rain_fx: RainFx
+var weather_kind := "dry"
 
 var _mode := "race"
 var _countdown_left := 0.0
@@ -170,6 +172,9 @@ func _setup_race() -> void:
 		return
 		# race setup overrides (0.6.0): laps + AI difficulty from Settings.race
 	config["laps"] = clampi(int(Settings.race.get("laps", 5)), 1, 99)
+	weather_kind = _resolve_weather_kind()
+	var wetness := WeatherState.wetness(weather_kind)
+	print("[race] weather=%s wetness=%.2f" % [weather_kind, wetness])
 	var grid_size: int = config.get("grid_size", 8)
 	session = RaceSession.new(track, config, grid_size)
 	var grid := session.grid_transforms()
@@ -194,22 +199,30 @@ func _setup_race() -> void:
 			car = VehicleFactory.build(AI_COLORS[i % AI_COLORS.size()], "AiCar%d" % i)
 		add_child(car)
 		car.global_transform = grid[i]
+		car.track_wetness = wetness
 		cars.append(car)
 		if i > 0 and i <= ai_count:
 			var level: Dictionary = levels.get(default_level, {})
-			var profile := SpeedProfile.build(ai_line, vehicle, float(level.get("mu_eff", 0.65)))
+			var tires: Dictionary = vehicle.get("tires", {})
+			var ai_compound := TyreCompound.best_for_wetness(wetness, tires)
+			car.compound = ai_compound
+			var ai_mu_eff := (
+				float(level.get("mu_eff", 0.65)) * TyreCompound.grip(ai_compound, wetness, tires)
+			)
+			var profile := SpeedProfile.build(ai_line, vehicle, ai_mu_eff)
 			var driver := AiDriver.new()
 			add_child(driver)
 			driver.setup(car, track, ai_line, profile, level, base_seed + i * 17)
 			driver.frozen = true
 			drivers.append(driver)
 			driver.reset_requested.connect(_on_ai_reset.bind(driver))
+	cars[0].compound = TyreCompound.sanitize(str(Settings.race.get("tyre", "slick")))
 	camera_rig = CameraRig.new(cars[0])
 	add_child(camera_rig)
 	camera_rig.cockpit_camera.current = true
 	camera_rig.mode_changed.connect(_on_camera_mode_changed)
 
-	race_hud = RaceHud.new(cars[0], session, 0)
+	race_hud = RaceHud.new(cars[0], session, 0, weather_kind)
 	add_child(race_hud)
 	race_hud.attach_minimap(track, cars)
 	var touch := TouchControls.new()
@@ -221,6 +234,11 @@ func _setup_race() -> void:
 	add_child(race_audio)
 	nitro_fx = NitroFx.new()
 	add_child(nitro_fx)
+
+	if wetness > 0.0:
+		_apply_wet_look(wetness)
+		rain_fx = RainFx.new(wetness, cars)
+		add_child(rain_fx)
 
 	_countdown_total = float(config.get("start", {}).get("countdown_s", 3.0))
 	_countdown_left = _countdown_total
@@ -581,6 +599,63 @@ func _print_trace() -> void:
 			% [_trace_elapsed, str(running), laps, " | ".join(parts)]
 		)
 	)
+
+
+## Weather kind for this race (0.10.0): APEX_WEATHER env wins (QA/tests),
+## then the championship round calendar, then the setup screen choice.
+func _resolve_weather_kind() -> String:
+	var env := OS.get_environment("APEX_WEATHER")
+	if WeatherState.is_valid(env):
+		return env
+	if _mode == "championship":
+		return WeatherState.sanitize(
+			str(ChampionshipStore.new().next_round().get("weather", WeatherState.DEFAULT_TYPE))
+		)
+	return WeatherState.sanitize(str(Settings.race.get("weather", WeatherState.DEFAULT_TYPE)))
+
+
+## Wet-weather look (0.10.0): darker sheen on the generated road ribbon,
+## dimmed sun, thin fog. The imported diorama road keeps its authored
+## texture — the rain volume, the spray and the dim light still sell the
+## conditions there (KNOWN_ISSUES).
+func _apply_wet_look(wetness: float) -> void:
+	TrackBuilder.apply_wetness(self, wetness)
+	for light in _find_all(self, "DirectionalLight3D"):
+		(light as DirectionalLight3D).light_energy *= 1.0 - 0.35 * wetness
+	var existing := _find_first(self, "WorldEnvironment") as WorldEnvironment
+	if existing != null and existing.environment != null:
+		existing.environment.fog_enabled = true
+		existing.environment.fog_density = 0.004 + 0.008 * wetness
+		existing.environment.fog_light_color = Color(0.55, 0.58, 0.62)
+		return
+	var env := Environment.new()
+	env.fog_enabled = true
+	env.fog_density = 0.004 + 0.008 * wetness
+	env.fog_light_color = Color(0.55, 0.58, 0.62)
+	var we := WorldEnvironment.new()
+	we.environment = env
+	add_child(we)
+
+
+## Depth-first search: first descendant whose class matches the name.
+func _find_first(root: Node, class_text: String) -> Node:
+	if root.is_class(class_text):
+		return root
+	for child in root.get_children():
+		var found := _find_first(child, class_text)
+		if found != null:
+			return found
+	return null
+
+
+## Depth-first search: every descendant whose class matches the name.
+func _find_all(root: Node, class_text: String) -> Array[Node]:
+	var out: Array[Node] = []
+	if root.is_class(class_text):
+		out.append(root)
+	for child in root.get_children():
+		out.append_array(_find_all(child, class_text))
+	return out
 
 
 ## Runs one scripted lap segment for screenshot/CI visual checks.
