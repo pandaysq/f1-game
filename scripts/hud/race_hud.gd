@@ -151,8 +151,12 @@ func show_track_limits(count: int, invalidated: bool = false) -> void:
 		show_message("TRACK LIMITS %d/%d" % [count, TrackLimits.LIMITS_PER_LAP])
 
 
-## F1-style classification screen after the finish.
-func show_results(entries: Array) -> void:
+## F1-style classification screen after the finish. names: fictional driver
+## roster of the current championship season (index 0 is the player, slot
+## i maps to names[i]; empty in plain races → YOU / AI<i>). champ:
+## {standings, season_done, round_index} from ChampionshipStore.record_result
+## — adds the points table (0.8.0).
+func show_results(entries: Array, names: Array = [], champ: Dictionary = {}) -> void:
 	if _results_root.visible:
 		return
 	var rows: VBoxContainer = _results_root.get_meta("rows")
@@ -174,16 +178,79 @@ func show_results(entries: Array) -> void:
 		var line := HBoxContainer.new()
 		line.add_theme_constant_override("separation", 26)
 		row.add_child(line)
-		line.add_child(_cell("P%d" % entry["position"], 26, "black"))
-		line.add_child(_cell("YOU" if is_player else "AI%d" % entry["car_index"], 24, "semibold"))
+		line.add_child(_cell("P%d" % entry["position"], 22, "black"))
+		line.add_child(_cell(_driver_label(entry["car_index"], is_player, names), 20, "semibold"))
 		var spacer := Control.new()
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		line.add_child(spacer)
-		line.add_child(_cell("BEST  " + format_lap(entry["best_lap"]), 20, "regular"))
+		line.add_child(_cell("BEST  " + format_lap(entry["best_lap"]), 18, "regular"))
 		rows.add_child(row)
+	_show_championship_table(champ)
 	var hint: Label = _results_root.get_meta("hint")
 	hint.text = "PAUSE  >  EXIT TO MENU  when ready"
 	_results_root.visible = true
+
+
+## Grid-slot label: season roster names (index 0 is the player) when
+## available, fallback YOU / AI<i>.
+func _driver_label(car_index: int, is_player: bool, names: Array) -> String:
+	if is_player:
+		return "YOU"
+	if car_index >= 0 and car_index < names.size():
+		return str(names[car_index])
+	return "AI%d" % car_index
+
+
+## Championship points table under the classification (top 5 + the player's
+## row when further down). champ empty in plain races → section stays hidden.
+func _show_championship_table(champ: Dictionary) -> void:
+	var box: VBoxContainer = _results_root.get_meta("champ_box")
+	var rows_box: VBoxContainer = _results_root.get_meta("champ_rows")
+	for child in rows_box.get_children():
+		child.queue_free()
+	box.visible = not champ.is_empty()
+	if champ.is_empty():
+		return
+	var season_done := bool(champ.get("season_done", false))
+	var header: Label = _results_root.get_meta("champ_title")
+	header.text = (
+		"CHAMPIONSHIP  ///  FINAL"
+		if season_done
+		else "CHAMPIONSHIP  ///  AFTER ROUND %d" % (int(champ.get("round_index", 0)) + 1)
+	)
+	var standings: Array = champ.get("standings", [])
+	var shown := 0
+	for i in range(standings.size()):
+		var entry: Dictionary = standings[i]
+		var name := str(entry.get("name", "?"))
+		var is_player := name == ChampionshipStore.PLAYER_NAME
+		if shown >= 5 and not is_player:
+			continue
+		rows_box.add_child(
+			_champ_row("P%d" % (i + 1), name, "%d PTS" % int(entry.get("points", 0)), is_player)
+		)
+		shown += 1
+
+
+func _champ_row(position: String, name: String, points: String, is_player: bool) -> PanelContainer:
+	var row := PanelContainer.new()
+	row.add_theme_stylebox_override(
+		"panel",
+		F1Theme.panel_style(
+			F1Theme.RED if is_player else F1Theme.PANEL_BG,
+			F1Theme.RED if is_player else Color(1, 1, 1, 0.3)
+		)
+	)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 18)
+	row.add_child(line)
+	line.add_child(_cell(position, 16, "black"))
+	line.add_child(_cell(name, 15, "semibold"))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.add_child(spacer)
+	line.add_child(_cell(points, 15, "regular"))
+	return row
 
 
 func _build_results_screen() -> void:
@@ -205,13 +272,23 @@ func _build_results_screen() -> void:
 	box.add_theme_constant_override("separation", 12)
 	center.add_child(box)
 
-	var title := _styled_label(40, "black", F1Theme.RED)
+	var title := _styled_label(36, "black", F1Theme.RED)
 	title.text = "RACE RESULT"
 	box.add_child(title)
 
 	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 6)
+	rows.add_theme_constant_override("separation", 4)
 	box.add_child(rows)
+
+	var champ_box := VBoxContainer.new()
+	champ_box.add_theme_constant_override("separation", 3)
+	champ_box.visible = false
+	box.add_child(champ_box)
+	var champ_title := _styled_label(18, "black", F1Theme.YELLOW)
+	champ_box.add_child(champ_title)
+	var champ_rows := VBoxContainer.new()
+	champ_rows.add_theme_constant_override("separation", 4)
+	champ_box.add_child(champ_rows)
 
 	var hint := _styled_label(18, "semibold", F1Theme.TEXT_DIM)
 	box.add_child(hint)
@@ -219,6 +296,9 @@ func _build_results_screen() -> void:
 	_results_root.set_meta("title", title)
 	_results_root.set_meta("rows", rows)
 	_results_root.set_meta("hint", hint)
+	_results_root.set_meta("champ_box", champ_box)
+	_results_root.set_meta("champ_title", champ_title)
+	_results_root.set_meta("champ_rows", champ_rows)
 
 
 func _cell(text: String, font_size: int, kind: String) -> Label:

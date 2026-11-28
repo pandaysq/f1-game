@@ -10,6 +10,7 @@ const PhysicsDriverScript := preload("res://tests/physics_driver.gd")
 const Phase2DriverScript := preload("res://tests/phase2_driver.gd")
 const AudioChecksScript := preload("res://tests/audio_checks.gd")
 const FeatureChecksScript := preload("res://tests/feature_checks.gd")
+const ChampionshipChecksScript := preload("res://tests/championship_checks.gd")
 
 var _checks: int = 0
 var _failures: Array[String] = []
@@ -38,6 +39,7 @@ func _initialize() -> void:
 	_test_config()
 	_test_audio()
 	_test_features()
+	_test_championship()
 	_test_track_validator()
 	_test_vehicle_visuals()
 	_test_time_trial_logic()
@@ -124,6 +126,10 @@ func _test_audio() -> void:
 
 func _test_features() -> void:
 	FeatureChecksScript.run(_check, root)
+
+
+func _test_championship() -> void:
+	ChampionshipChecksScript.run(_check, root)
 
 
 # -------------------------------------------------------- validator tests

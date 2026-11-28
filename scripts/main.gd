@@ -52,6 +52,8 @@ var _prev_nitro := false
 
 # Dev screenshot hook: APEX_SHOT_DIR=<dir> APEX_SHOT_PLAN="2.0:cockpit,5.0:chase,8.0:top"
 # Optional APEX_DRIVE=1 drives the car gently so shots show real action.
+# APEX_FAKE_RESULT=1 fabricates a finished race after 2 s (results screen QA
+# under software GL: llvmpipe stalls mid-race, see docs/KNOWN_ISSUES.md).
 var _shot_dir := ""
 var _shot_plan: Array = []  # sorted [[time: float, mode: String], ...]
 var _shot_timer := 0.0
@@ -73,6 +75,8 @@ func _ready() -> void:
 		mode = Settings.launch_mode
 	if mode == "tt":
 		_mode = "tt"
+	elif mode == "championship":
+		_mode = "championship"
 	var text := FileAccess.get_file_as_string(Settings.track_path(track_id))
 	track = TrackData.parse(text, Settings.track_path(track_id))
 	if track == null:
@@ -93,6 +97,8 @@ func _ready() -> void:
 		_setup_race()
 	debug_overlay.visible = OS.get_environment("APEX_DEBUG") == "1"
 	_init_screenshot_hook()
+	if OS.get_environment("APEX_FAKE_RESULT") == "1" and race_hud != null:
+		_fake_race_result()
 	if not OS.get_environment("APEX_TRACE").is_empty():
 		_trace_left = maxf(OS.get_environment("APEX_TRACE").to_float(), 1.0)
 
@@ -328,7 +334,8 @@ func _update_race(delta: float) -> void:
 	if not _race_over and not session.classification.is_empty():
 		_race_over = true
 		Sfx.finish()
-		race_hud.show_results(session.classification)
+		var champ := _record_championship() if _mode == "championship" else {}
+		race_hud.show_results(session.classification, _championship_names(), champ)
 		_record_career()
 		print("[race] classified, career recorded")
 
@@ -430,6 +437,61 @@ func _record_career() -> void:
 		return
 
 
+## Championship: append the finished round to the season (0.8.0). Returns
+## {standings, season_done, round_index} for the results screen, {} outside
+## championship mode / on failure.
+func _record_championship() -> Dictionary:
+	var store := ChampionshipStore.new()
+	var result := store.record_result(session.classification)
+	if result.is_empty():
+		push_warning("[championship] result not recorded (no active season?)")
+		return {}
+	print(
+		(
+			"[championship] round %d recorded, done=%s"
+			% [int(result.get("round_index", 0)) + 1, str(result.get("season_done", false))]
+		)
+	)
+	return result
+
+
+## Fictional driver names of the current season for the results screen
+## (empty outside championship mode - HUD falls back to YOU / AI<i>).
+func _championship_names() -> Array:
+	if _mode != "championship":
+		return []
+	var state := ChampionshipStore.new().state()
+	var names: Variant = state.get("names", [])
+	return names if names is Array else []
+
+
+## Visual QA: fabricate a classified race through the real results path so
+## the classification screen (and the championship table in 0.8.0) can be
+## screenshotted without driving laps under software GL. Writes the round to
+## the season store like a real finish (QA-only env gate).
+func _fake_race_result() -> void:
+	await get_tree().create_timer(2.0).timeout
+	var order := [2, 1, 0, 3, 4, 5, 6, 7]  # YOU crosses the line in P3
+	for rank in range(order.size()):
+		(
+			session
+			. classification
+			. append(
+				{
+					"position": rank + 1,
+					"car_index": int(order[rank]),
+					"laps": session.total_laps,
+					"best_lap": 62.4 + float(rank) * 0.3,
+					"finish_time": 190.0 + float(rank) * 1.7,
+				}
+			)
+		)
+	_race_over = true
+	var champ := _record_championship() if _mode == "championship" else {}
+	race_hud.show_results(session.classification, _championship_names(), champ)
+	print("[race] fake result shown (APEX_FAKE_RESULT)")
+
+
 func _update_player_drs() -> void:
 	var car := cars[0]
 	var available := session.drs_available(0) and session.started and not _race_over
@@ -524,11 +586,9 @@ func _print_trace() -> void:
 ## Runs one scripted lap segment for screenshot/CI visual checks.
 func _init_screenshot_hook() -> void:
 	_shot_dir = OS.get_environment("APEX_SHOT_DIR")
-	if _shot_dir.is_empty():
-		return
 
-		# visual QA: drive the player car with a real AI driver so shots
-		# show actual racing (not a blind full-throttle crash)
+	# visual QA: drive the player car with a real AI driver so shots
+	# show actual racing (not a blind full-throttle crash)
 	var plan := OS.get_environment("APEX_SHOT_PLAN")
 	for entry in plan.split(","):
 		var parts := entry.split(":")
@@ -547,7 +607,7 @@ func _init_screenshot_hook() -> void:
 		var driver := AiDriver.new()
 		add_child(driver)
 		driver.setup(cars[0], track, ai_line, profile, level, 777)
-		driver.frozen = not session.started if _mode == "race" else false
+		driver.frozen = not session.started if _mode != "tt" else false
 		drivers.append(driver)
 
 

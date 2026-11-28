@@ -36,23 +36,38 @@ func _build_body() -> void:
 	var shell := _material(Color("303741"), 0.55, 0.28)
 	var face := _material(Color("22262d"), 0.73)
 	var rubber := _material(Color("373c43"), 0.94)
-	var outline := PackedVector2Array([
-		Vector2(-0.076, -0.068), Vector2(0.076, -0.068), Vector2(0.118, -0.043),
-		Vector2(0.118, 0.048), Vector2(0.088, 0.074), Vector2(-0.088, 0.074),
-		Vector2(-0.118, 0.048), Vector2(-0.118, -0.043),
-	])
+	var outline := PackedVector2Array(
+		[
+			Vector2(-0.076, -0.068),
+			Vector2(0.076, -0.068),
+			Vector2(0.118, -0.043),
+			Vector2(0.118, 0.048),
+			Vector2(0.088, 0.074),
+			Vector2(-0.088, 0.074),
+			Vector2(-0.118, 0.048),
+			Vector2(-0.118, -0.043),
+		]
+	)
 	_add_part(_beveled_mesh(outline, 0.022), Vector3.ZERO, shell)
 	var inset := PackedVector2Array()
 	for point in outline:
 		inset.append(point * 0.92)
 	_add_part(_beveled_mesh(inset, 0.009), Vector3(0.0, 0.0, 0.009), face)
 
-	var grip := PackedVector2Array([
-		Vector2(-0.017, -0.069), Vector2(0.0, -0.079), Vector2(0.017, -0.069),
-		Vector2(0.026, -0.046), Vector2(0.026, 0.046), Vector2(0.017, 0.069),
-		Vector2(0.0, 0.079), Vector2(-0.017, 0.069), Vector2(-0.026, 0.046),
-		Vector2(-0.026, -0.046),
-	])
+	var grip := PackedVector2Array(
+		[
+			Vector2(-0.017, -0.069),
+			Vector2(0.0, -0.079),
+			Vector2(0.017, -0.069),
+			Vector2(0.026, -0.046),
+			Vector2(0.026, 0.046),
+			Vector2(0.017, 0.069),
+			Vector2(0.0, 0.079),
+			Vector2(-0.017, 0.069),
+			Vector2(-0.026, 0.046),
+			Vector2(-0.026, -0.046),
+		]
+	)
 	var grip_mesh := _beveled_mesh(grip, 0.035)
 	var paddles := _material(Color("66727f"), 0.48, 0.45)
 	for side in [-1.0, 1.0]:
@@ -68,15 +83,13 @@ func _build_body() -> void:
 
 	_add_dial(Vector3(0.0, -0.050, 0.014), 0.011, _material(Color("be5147"), 0.48))
 	_add_box(
-		Vector3(0.003, 0.008, 0.001), Vector3(0.0, -0.048, 0.019),
-		_material(Color("eee4d9"), 0.6)
+		Vector3(0.003, 0.008, 0.001), Vector3(0.0, -0.048, 0.019), _material(Color("eee4d9"), 0.6)
 	)
 
 
 func _build_display() -> void:
 	_add_box(
-		Vector3(0.087, 0.060, 0.009), Vector3(0.0, 0.008, 0.013),
-		_material(Color("10181d"), 0.36)
+		Vector3(0.087, 0.060, 0.009), Vector3(0.0, 0.008, 0.013), _material(Color("10181d"), 0.36)
 	)
 	_gear_label = Label3D.new()
 	_gear_label.name = "GearNumber"
@@ -97,8 +110,7 @@ func _build_leds() -> void:
 		mat.emission = color
 		_led_colors.append(mat)
 	_add_box(
-		Vector3(0.174, 0.017, 0.008), Vector3(0.0, 0.053, 0.013),
-		_material(Color("121519"), 0.56)
+		Vector3(0.174, 0.017, 0.008), Vector3(0.0, 0.053, 0.013), _material(Color("121519"), 0.56)
 	)
 	var cap := BoxMesh.new()
 	cap.size = Vector3(0.008, 0.007, 0.003)

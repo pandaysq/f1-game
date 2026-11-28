@@ -106,6 +106,13 @@ func _load() -> Dictionary:
 
 ## Atomic write: tmp file first, then rename over the target.
 func _save(data: Dictionary) -> bool:
+	# The parent directory may not exist on a fresh install (user://league/).
+	var dir := path.get_base_dir()
+	if not dir.is_empty() and not DirAccess.dir_exists_absolute(dir):
+		var err := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+		if err != OK:
+			push_error("results_store: cannot create %s (%d)" % [dir, err])
+			return false
 	var tmp := path + ".tmp"
 	var file := FileAccess.open(tmp, FileAccess.WRITE)
 	if file == null:

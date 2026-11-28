@@ -1,13 +1,15 @@
 extends Control
-## Main menu (0.4.0, extended 0.6.0): F1-broadcast look — animated flowing
+## Main menu (0.4.0, extended 0.8.0): F1-broadcast look — animated flowing
 ## backdrop, skewed red-accent buttons, settings screen, pre-race setup
-## (track / laps / AI difficulty), local stats panel and disabled stubs for
-## future modes (online multiplayer, championship, garage). The menu is the
-## entry scene; it switches into scenes/main.tscn with Settings.launch_mode.
-## A looping menu soundtrack rides the Music bus (MenuMusic).
+## (track / laps / AI difficulty), local stats panel, the offline
+## championship screen and a disabled stub for future modes (online
+## multiplayer, garage). The menu is the entry scene; it switches into
+## scenes/main.tscn with Settings.launch_mode. A looping menu soundtrack
+## rides the Music bus (MenuMusic).
 ##
 ## Dev hook: APEX_SHOT_DIR=<dir> saves a menu screenshot and quits (visual
-## QA); APEX_SHOT_VIEW=settings|setup|stats opens the respective panel first.
+## QA); APEX_SHOT_VIEW=settings|setup|stats|championship opens the respective
+## panel first.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 
@@ -17,6 +19,7 @@ var _settings_panel: SettingsPanel
 var _race_setup: RaceSetupPanel
 var _tt_setup: RaceSetupPanel
 var _career_panel: CareerPanel
+var _champ_panel: ChampionshipPanel
 
 
 func _ready() -> void:
@@ -35,6 +38,9 @@ func _ready() -> void:
 	add_child(_tt_setup)
 	_career_panel = CareerPanel.new()
 	add_child(_career_panel)
+	_champ_panel = ChampionshipPanel.new()
+	_champ_panel.setup_catalog(Settings.TRACKS, Settings.LAP_CHOICES, Settings.AI_LEVELS)
+	add_child(_champ_panel)
 	# QA hooks: capture a specific panel instead of the plain menu
 	var view := OS.get_environment("APEX_SHOT_VIEW")
 	if view == "settings":
@@ -43,6 +49,9 @@ func _ready() -> void:
 		_race_setup.visible = true
 	elif view == "stats":
 		_career_panel.visible = true
+	elif view == "championship":
+		_champ_panel.rebuild()
+		_champ_panel.visible = true
 	if not OS.get_environment("APEX_SHOT_DIR").is_empty():
 		_shot_dir = OS.get_environment("APEX_SHOT_DIR")
 
@@ -70,7 +79,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _any_panel_visible() -> bool:
 	return (
-		_settings_panel.visible or _race_setup.visible or _tt_setup.visible or _career_panel.visible
+		_settings_panel.visible
+		or _race_setup.visible
+		or _tt_setup.visible
+		or _career_panel.visible
+		or _champ_panel.visible
 	)
 
 
@@ -137,9 +150,16 @@ func _add_buttons() -> void:
 	stats.pressed.connect(func() -> void: _career_panel.visible = true)
 	box.add_child(stats)
 
+	var champ := F1Theme.button("CHAMPIONSHIP", 28, Vector2(380, 52))
+	champ.pressed.connect(
+		func() -> void:
+			_champ_panel.rebuild()
+			_champ_panel.visible = true
+	)
+	box.add_child(champ)
+
 	# future modes (phase 3+): visible stubs, disabled
 	box.add_child(_stub_button("MULTIPLAYER  ///  ONLINE"))
-	box.add_child(_stub_button("CHAMPIONSHIP"))
 	box.add_child(_stub_button("GARAGE"))
 
 	play.grab_focus()
@@ -153,7 +173,7 @@ func _stub_button(label: String) -> Button:
 
 func _add_footer() -> void:
 	var version := Label.new()
-	version.text = "APEX GP  v0.7.0"
+	version.text = "APEX GP  v0.8.0"
 	version.add_theme_font_override("font", F1Theme.font("bold"))
 	version.add_theme_font_size_override("font_size", 16)
 	version.add_theme_color_override("font_color", F1Theme.TEXT_DIM)
